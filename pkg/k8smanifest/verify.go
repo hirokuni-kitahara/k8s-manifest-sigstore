@@ -48,8 +48,7 @@ func NewSignatureVerifier(objYAMLBytes []byte, imageRef string, pubkeyPath *stri
 		}
 	}
 	if imageRef == "" {
-		// TODO: support annotation signature
-		return nil
+		return &AnnotationSignatureVerifier{}
 	} else {
 		return &ImageSignatureVerifier{imageRef: imageRef}
 	}
@@ -70,6 +69,14 @@ func (v *ImageSignatureVerifier) Verify() (bool, string, error) {
 	return k8smnfcosign.VerifyImage(imageRef, v.pubkeyPath)
 }
 
+type AnnotationSignatureVerifier struct {
+}
+
+func (v *AnnotationSignatureVerifier) Verify() (bool, string, error) {
+	// TODO: support annotation signature
+	return false, "", errors.New("annotation-embedded signature is not supported yet")
+}
+
 // This is an interface for fetching YAML manifest
 // a function Fetch() fetches a YAML manifest which matches the input object's kind, name and so on
 type ManifestFetcher interface {
@@ -78,8 +85,7 @@ type ManifestFetcher interface {
 
 func NewManifestFetcher(imageRef string) ManifestFetcher {
 	if imageRef == "" {
-		// TODO: support annotation signature
-		return nil
+		return &AnnotationManifestFetcher{}
 	} else {
 		return &ImageManifestFetcher{imageRef: imageRef}
 	}
@@ -127,6 +133,14 @@ func (f *ImageManifestFetcher) getConcatYAMLFromImageRef(imageRef string) ([]byt
 		return nil, err
 	}
 	return concatYAMLbytes, nil
+}
+
+type AnnotationManifestFetcher struct {
+}
+
+func (f *AnnotationManifestFetcher) Fetch(objYAMLBytes []byte) ([]byte, error) {
+	// TODO: support annotation signature
+	return nil, errors.New("annotation-embedded signature is not supported yet")
 }
 
 type VerifyResult struct {

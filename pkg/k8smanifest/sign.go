@@ -39,7 +39,7 @@ const (
 	SignatureAnnotationKey   = "cosign.sigstore.dev/signature"
 	CertificateAnnotationKey = "cosign.sigstore.dev/certificate"
 	MessageAnnotationKey     = "cosign.sigstore.dev/message"
-	BundleAnnotationKey      = "cosign.sigstore.dev/bundle" // bundle is not supported in cosign.SignBlob() so far
+	BundleAnnotationKey      = "cosign.sigstore.dev/bundle" // bundle is not supported in cosign.SignBlob() yet
 )
 
 func Sign(inputDir string, so *SignOption) ([]byte, error) {
@@ -67,8 +67,7 @@ func NewSigner(imageRef, keyPath string) Signer {
 		prikeyPath = &keyPath
 	}
 	if imageRef == "" {
-		// TODO: support annotation signature
-		return nil
+		return &AnnotationSigner{}
 	} else {
 		return &ImageSigner{imageRef: imageRef, prikeyPath: prikeyPath}
 	}
@@ -108,6 +107,14 @@ func (s *ImageSigner) Sign(inputDir, output string) ([]byte, error) {
 		}
 	}
 	return signedBytes, nil
+}
+
+type AnnotationSigner struct {
+}
+
+func (s *AnnotationSigner) Sign(inputDir, output string) ([]byte, error) {
+	// TODO: support annotation signature
+	return nil, errors.New("annotation-embedded signature is not supported yet")
 }
 
 func uploadFileToRegistry(inputData []byte, imageRef string) error {
