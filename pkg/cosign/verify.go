@@ -121,15 +121,20 @@ func VerifyImage(imageRef string, pubkeyPath string) (bool, string, *int64, erro
 	return true, signerName, signedTimestamp, nil
 }
 
-func VerifyBlob(msgBytes, sigBytes, certBytes, bundleBytes []byte, pubkeyPath *string) (bool, string, *int64, error) {
+func VerifyBlob(msgBytes, sigBytes, certBytes, bundleBytes []byte, pubkeyPath *string, simple bool) (bool, string, *int64, error) {
 	dir, err := ioutil.TempDir("", "kubectl-sigstore-temp-dir")
 	if err != nil {
 		return false, "", nil, err
 	}
 	defer os.RemoveAll(dir)
 
-	gzipMsg, _ := base64.StdEncoding.DecodeString(string(msgBytes))
-	rawMsg := k8smnfutil.GzipDecompress(gzipMsg)
+	var rawMsg []byte
+	if simple {
+		rawMsg = msgBytes
+	} else {
+		gzipMsg, _ := base64.StdEncoding.DecodeString(string(msgBytes))
+		rawMsg = k8smnfutil.GzipDecompress(gzipMsg)
+	}
 	msgFile := filepath.Join(dir, tmpMessageFile)
 	_ = ioutil.WriteFile(msgFile, rawMsg, 0777)
 

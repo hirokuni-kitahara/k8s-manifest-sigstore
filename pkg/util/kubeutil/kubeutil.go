@@ -43,12 +43,11 @@ var cfg *rest.Config
 type podGetterFunc func(obj *unstructured.Unstructured) ([]*corev1.Pod, error)
 
 var podGetterMapper map[string]podGetterFunc = map[string]podGetterFunc{
-	"Deployment": getPodsFromDeployment,
-	// TODO: implement below
-	"ReplicaSet":  getPodsNotImplemented,
-	"Pod":         getPodsNotImplemented,
-	"DaemonSet":   getPodsNotImplemented,
-	"StatefulSet": getPodsNotImplemented,
+	"Deployment":  getPodsFromDeployment,
+	"ReplicaSet":  getPodsFromReplicaSet,
+	"Pod":         getPodsFromPod,
+	"DaemonSet":   getPodsFromDaemonSet,
+	"StatefulSet": getPodsFromStatefulSet,
 }
 
 func GetInClusterConfig() (*rest.Config, error) {
@@ -381,6 +380,123 @@ func getPodsFromDeployment(obj *unstructured.Unstructured) ([]*corev1.Pod, error
 
 	namespace := deploy.GetNamespace()
 	selector, err := metav1.LabelSelectorAsSelector(deploy.Spec.Selector)
+	if err != nil {
+		return nil, fmt.Errorf("error in converting *metav1.LabelSelector to labels.Selector; %s", err.Error())
+	}
+	selectorStr := selector.String()
+	config, err := GetKubeConfig()
+	if err != nil {
+		return nil, fmt.Errorf("error in getting k8s config; %s", err.Error())
+	}
+
+	client, err := corev1client.NewForConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("error in creating Core V1 Client; %s", err.Error())
+	}
+	podList, err := client.Pods(namespace).List(context.Background(), metav1.ListOptions{LabelSelector: selectorStr})
+	if err != nil {
+		return nil, fmt.Errorf("error in listing pods; %s", err.Error())
+	}
+	pods := []*corev1.Pod{}
+	for i := range podList.Items {
+		p := podList.Items[i]
+		pods = append(pods, &p)
+	}
+	return pods, nil
+}
+
+func getPodsFromReplicaSet(obj *unstructured.Unstructured) ([]*corev1.Pod, error) {
+	var rs appsv1.ReplicaSet
+	objBytes, _ := json.Marshal(obj.Object)
+	err := json.Unmarshal(objBytes, &rs)
+	if err != nil {
+		return nil, fmt.Errorf("error in converting object to ReplicaSet; %s", err.Error())
+	}
+
+	namespace := rs.GetNamespace()
+	selector, err := metav1.LabelSelectorAsSelector(rs.Spec.Selector)
+	if err != nil {
+		return nil, fmt.Errorf("error in converting *metav1.LabelSelector to labels.Selector; %s", err.Error())
+	}
+	selectorStr := selector.String()
+	config, err := GetKubeConfig()
+	if err != nil {
+		return nil, fmt.Errorf("error in getting k8s config; %s", err.Error())
+	}
+
+	client, err := corev1client.NewForConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("error in creating Core V1 Client; %s", err.Error())
+	}
+	podList, err := client.Pods(namespace).List(context.Background(), metav1.ListOptions{LabelSelector: selectorStr})
+	if err != nil {
+		return nil, fmt.Errorf("error in listing pods; %s", err.Error())
+	}
+	pods := []*corev1.Pod{}
+	for i := range podList.Items {
+		p := podList.Items[i]
+		pods = append(pods, &p)
+	}
+	return pods, nil
+}
+
+func getPodsFromPod(obj *unstructured.Unstructured) ([]*corev1.Pod, error) {
+	var pod corev1.Pod
+	objBytes, _ := json.Marshal(obj.Object)
+	err := json.Unmarshal(objBytes, &pod)
+	if err != nil {
+		return nil, fmt.Errorf("error in converting object to Pod; %s", err.Error())
+	}
+
+	pods := []*corev1.Pod{&pod}
+	return pods, nil
+}
+
+func getPodsFromDaemonSet(obj *unstructured.Unstructured) ([]*corev1.Pod, error) {
+	var ds appsv1.DaemonSet
+	objBytes, _ := json.Marshal(obj.Object)
+	err := json.Unmarshal(objBytes, &ds)
+	if err != nil {
+		return nil, fmt.Errorf("error in converting object to DaemonSet; %s", err.Error())
+	}
+
+	namespace := ds.GetNamespace()
+	selector, err := metav1.LabelSelectorAsSelector(ds.Spec.Selector)
+	if err != nil {
+		return nil, fmt.Errorf("error in converting *metav1.LabelSelector to labels.Selector; %s", err.Error())
+	}
+	selectorStr := selector.String()
+	config, err := GetKubeConfig()
+	if err != nil {
+		return nil, fmt.Errorf("error in getting k8s config; %s", err.Error())
+	}
+
+	client, err := corev1client.NewForConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("error in creating Core V1 Client; %s", err.Error())
+	}
+	podList, err := client.Pods(namespace).List(context.Background(), metav1.ListOptions{LabelSelector: selectorStr})
+	if err != nil {
+		return nil, fmt.Errorf("error in listing pods; %s", err.Error())
+	}
+	pods := []*corev1.Pod{}
+	for i := range podList.Items {
+		p := podList.Items[i]
+		pods = append(pods, &p)
+	}
+	return pods, nil
+}
+
+func getPodsFromStatefulSet(obj *unstructured.Unstructured) ([]*corev1.Pod, error) {
+	var sts appsv1.StatefulSet
+	objBytes, _ := json.Marshal(obj.Object)
+	err := json.Unmarshal(objBytes, &sts)
+	if err != nil {
+		return nil, fmt.Errorf("error in converting object to StatefulSet; %s", err.Error())
+	}
+
+	namespace := sts.GetNamespace()
+	selector, err := metav1.LabelSelectorAsSelector(sts.Spec.Selector)
 	if err != nil {
 		return nil, fmt.Errorf("error in converting *metav1.LabelSelector to labels.Selector; %s", err.Error())
 	}

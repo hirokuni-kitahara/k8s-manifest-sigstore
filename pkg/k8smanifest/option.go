@@ -40,6 +40,10 @@ const InClusterObjectPrefix = "k8s://"
 //go:embed resources/default-config.yaml
 var defaultConfigBytes []byte
 
+// This is mask fields for simple signing
+//go:embed resources/mask-fields.yaml
+var maskFieldsBytes []byte
+
 // option for Sign()
 type SignOption struct {
 	commonOption `json:""`
@@ -53,6 +57,7 @@ type SignOption struct {
 	ImageAnnotations  map[string]interface{} `json:"-"`
 	PassFunc          cosign.PassFunc        `json:"-"`
 	ApplySigConfigMap bool                   `json:"-"`
+	Simple            bool                   `json:"-"`
 }
 
 // option for VerifyResource()
@@ -64,6 +69,8 @@ type VerifyResourceOption struct {
 	Provenance          bool   `json:"-"`
 	CheckDryRunForApply bool   `json:"-"`
 	DryRunNamespace     string `json:"-"`
+	DisableDryRun       bool   `json:"-"`
+	Simple              bool   `json:"-"`
 }
 
 func (o *VerifyResourceOption) SetAnnotationIgnoreFields() {
@@ -77,6 +84,7 @@ func (o *VerifyResourceOption) SetAnnotationIgnoreFields() {
 type VerifyManifestOption struct {
 	commonOption `json:""`
 	verifyOption `json:""`
+	Simple       bool `json:"-"`
 }
 
 func (o *VerifyManifestOption) SetAnnotationIgnoreFields() {
@@ -102,6 +110,7 @@ type verifyOption struct {
 	ProvenanceResourceRef string `json:"-"`
 	UseCache              bool   `json:"-"`
 	CacheDir              string `json:"-"`
+	Simple                bool   `json:"-"`
 
 	annotationKeyToIgnoreFields bool `json:"-"`
 }
@@ -125,6 +134,8 @@ type commonOption struct {
 type AnnotationConfig struct {
 	// default "cosign.sigstore.dev"
 	AnnotationKeyDomain string `json:"annotationKeyDomain,omitempty"`
+
+	AlternativeSignatureAnnotationBase string `json:"alternativeSignatureAnnotationBase,omitempty"`
 }
 
 func (c AnnotationConfig) ImageRefAnnotationKey() string {
@@ -132,6 +143,9 @@ func (c AnnotationConfig) ImageRefAnnotationKey() string {
 }
 
 func (c AnnotationConfig) SignatureAnnotationKey() string {
+	if c.AlternativeSignatureAnnotationBase != "" {
+		return c.annotationKey(c.AlternativeSignatureAnnotationBase)
+	}
 	return c.annotationKey(SignatureAnnotationBaseName)
 }
 
@@ -476,4 +490,14 @@ func LoadDefaultConfig() *VerifyResourceOption {
 func AddDefaultConfig(vo *VerifyResourceOption) *VerifyResourceOption {
 	dvo := LoadDefaultConfig()
 	return vo.AddDefaultConfig(dvo)
+}
+
+func loadMaskFeilds() []string {
+	var maskFields []string
+	err := yaml.Unmarshal(maskFieldsBytes, &maskFields)
+	if err != nil {
+		log.Errorf("failed to unmarshal mask fields; %s", err.Error())
+		return nil
+	}
+	return maskFields
 }

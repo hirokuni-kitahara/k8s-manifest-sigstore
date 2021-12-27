@@ -27,12 +27,12 @@ require (
 	github.com/theupdateframework/go-tuf v0.0.0-20210804171843-477a5d73800a
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
 	gopkg.in/yaml.v2 v2.4.0
-	k8s.io/api v0.23.0-alpha.4
-	k8s.io/apimachinery v0.23.0-alpha.4
-	k8s.io/cli-runtime v0.23.0-alpha.4
-	k8s.io/client-go v0.23.0-alpha.4
-	k8s.io/kube-openapi v0.0.0-20210817084001-7fbd8d59e5b8
-	k8s.io/kubectl v0.23.0-alpha.4
+	k8s.io/api v0.23.0
+	k8s.io/apimachinery v0.23.0
+	k8s.io/cli-runtime v0.23.0
+	k8s.io/client-go v0.23.0
+	k8s.io/kube-openapi v0.0.0-20211115234752-e816edb12b65
+	k8s.io/kubectl v0.23.0
 	sigs.k8s.io/controller-runtime v0.11.0-beta.0.0.20211115163949-4d10a0615b11
 	sigs.k8s.io/kustomize/api v0.10.1
 	sigs.k8s.io/kustomize/kyaml v0.13.0
@@ -40,4 +40,4 @@ require (
 
 // `go install` only works with a project which has no replace for main module in go.mod.
 // So please uncomment the below manually if you are working on a fork repo and if you want to test your local changes.
-// replace github.com/sigstore/k8s-manifest-sigstore => ./
+replace github.com/sigstore/k8s-manifest-sigstore => ./

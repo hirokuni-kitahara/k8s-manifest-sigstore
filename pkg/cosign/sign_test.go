@@ -63,7 +63,7 @@ func TestSignBlob(t *testing.T) {
 	blobPath := files["blob"].fpath
 	keyPath := files["key"].fpath
 
-	sigMap, err := SignBlob(blobPath, &keyPath, nil, passFuncForTest)
+	sigMap, err := SignBlob(blobPath, &keyPath, nil, passFuncForTest, false)
 	if err != nil {
 		t.Errorf("failed to load test files: %s", err.Error())
 		return
@@ -74,6 +74,42 @@ func TestSignBlob(t *testing.T) {
 	}
 	if _, ok := sigMap["message"]; !ok {
 		t.Error("message is not found in return values from SignBlob()")
+		return
+	}
+
+	// sigBytes := sigMap["signature"]
+	// b64SigBytes := base64.StdEncoding.EncodeToString(sigBytes)
+	// sigFileName := filepath.Join("testdata", "testsig")
+	// _ = ioutil.WriteFile(sigFileName, []byte(b64SigBytes), 0644)
+}
+
+func TestSignSimple(t *testing.T) {
+	tmpDir, err := ioutil.TempDir("", "sign_test")
+	if err != nil {
+		t.Errorf("failed to create temp dir: %s", err.Error())
+		return
+	}
+	defer os.RemoveAll(tmpDir)
+
+	files := map[string]testFile{
+		"blob": {b64data: b64EncodedTestBlob, fpath: filepath.Join(tmpDir, "blobfile")},
+		"key":  {b64data: b64EncodedTestKey, fpath: filepath.Join(tmpDir, "cosign.key")},
+	}
+	err = loadTestFiles(files)
+	if err != nil {
+		t.Errorf("failed to load test files: %s", err.Error())
+		return
+	}
+	blobPath := files["blob"].fpath
+	keyPath := files["key"].fpath
+
+	sigMap, err := SignBlob(blobPath, &keyPath, nil, passFuncForTest, true)
+	if err != nil {
+		t.Errorf("failed to load test files: %s", err.Error())
+		return
+	}
+	if _, ok := sigMap["signature"]; !ok {
+		t.Error("signature is not found in return values from SignSimple()")
 		return
 	}
 

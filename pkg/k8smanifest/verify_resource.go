@@ -33,14 +33,15 @@ import (
 const defaultDryRunNamespace = "default"
 
 type VerifyResourceResult struct {
-	Verified        bool                   `json:"verified"`
-	InScope         bool                   `json:"inScope"`
-	Signer          string                 `json:"signer"`
-	SignedTime      *time.Time             `json:"signedTime"`
-	SigRef          string                 `json:"sigRef"`
-	Diff            *mapnode.DiffResult    `json:"diff"`
-	ContainerImages []kubeutil.ImageObject `json:"containerImages"`
-	Provenances     []*Provenance          `json:"provenances,omitempty"`
+	Verified           bool                   `json:"verified"`
+	InScope            bool                   `json:"inScope"`
+	Signer             string                 `json:"signer"`
+	SignedTime         *time.Time             `json:"signedTime"`
+	SigRef             string                 `json:"sigRef"`
+	Diff               *mapnode.DiffResult    `json:"diff"`
+	ContainerImages    []kubeutil.ImageObject `json:"containerImages"`
+	Provenances        []*Provenance          `json:"provenances,omitempty"`
+	DryRunUsedForMatch bool                   `json:"dryRunUsedForMatch"`
 }
 
 func (r *VerifyResourceResult) String() string {
@@ -99,30 +100,37 @@ func VerifyResource(obj unstructured.Unstructured, vo *VerifyResourceOption) (*V
 		}
 	}
 
-	var resourceManifests [][]byte
-	log.Debug("fetching manifest...")
-	resourceManifests, sigRef, err = NewManifestFetcher(imageRefString, sigResourceRefString, vo.AnnotationConfig, ignoreFields, vo.MaxResourceManifestNum).Fetch(objBytes)
-	if err != nil {
-		return nil, errors.Wrap(err, "YAML manifest not found for this resource")
-	}
-	log.Debug("matching object with manifest...")
+	
 	var mnfMatched bool
 	var diff *mapnode.DiffResult
 	var diffsForAllCandidates []*mapnode.DiffResult
-	for i, candidate := range resourceManifests {
-		log.Debugf("try matching with the candidate %v out of %v", i+1, len(resourceManifests))
-		cndMatched, tmpDiff, err := matchResourceWithManifest(obj, candidate, ignoreFields, vo.DryRunNamespace, vo.CheckDryRunForApply)
+	var dryRunUsedForMatch bool
+	if vo.Simple {
+		mnfMatched = true
+	} else {
+		var resourceManifests [][]byte
+		log.Debug("fetching manifest...")
+		resourceManifests, sigRef, err = NewManifestFetcher(imageRefString, sigResourceRefString, vo.AnnotationConfig, ignoreFields, vo.MaxResourceManifestNum).Fetch(objBytes)
 		if err != nil {
-			return nil, errors.Wrap(err, "error occurred during matching manifest")
+			return nil, errors.Wrap(err, "YAML manifest not found for this resource")
 		}
-		diffsForAllCandidates = append(diffsForAllCandidates, tmpDiff)
-		if cndMatched {
-			mnfMatched = true
-			break
+		log.Debug("matching object with manifest...")
+		for i, candidate := range resourceManifests {
+			log.Debugf("try matching with the candidate %v out of %v", i+1, len(resourceManifests))
+			cndMatched, tmpDiff, tmpDryRunUsedForMatch, err := matchResourceWithManifest(obj, candidate, ignoreFields, vo.DryRunNamespace, vo.CheckDryRunForApply, vo.DisableDryRun)
+			if err != nil {
+				return nil, errors.Wrap(err, "error occurred during matching manifest")
+			}
+			diffsForAllCandidates = append(diffsForAllCandidates, tmpDiff)
+			if cndMatched {
+				mnfMatched = true
+				dryRunUsedForMatch = tmpDryRunUsedForMatch
+				break
+			}
 		}
-	}
-	if !mnfMatched && len(diffsForAllCandidates) > 0 {
-		diff = diffsForAllCandidates[0]
+		if !mnfMatched && len(diffsForAllCandidates) > 0 {
+			diff = diffsForAllCandidates[0]
+		}
 	}
 
 	var keyPath *string
@@ -132,7 +140,7 @@ func VerifyResource(obj unstructured.Unstructured, vo *VerifyResourceOption) (*V
 
 	var sigVerified bool
 	log.Debug("verifying signature...")
-	sigVerified, signerName, signedTimestamp, err = NewSignatureVerifier(objBytes, sigRef, keyPath, vo.AnnotationConfig).Verify()
+	sigVerified, signerName, signedTimestamp, err = NewSignatureVerifier(objBytes, sigRef, keyPath, vo.AnnotationConfig, vo.Simple).Verify()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to verify signature")
 	}
@@ -153,18 +161,19 @@ func VerifyResource(obj unstructured.Unstructured, vo *VerifyResourceOption) (*V
 	}
 
 	return &VerifyResourceResult{
-		Verified:        verified,
-		InScope:         inScope,
-		Signer:          signerName,
-		SignedTime:      getTime(signedTimestamp),
-		SigRef:          sigRef,
-		Diff:            diff,
-		ContainerImages: containerImages,
-		Provenances:     provenances,
+		Verified:           verified,
+		InScope:            inScope,
+		Signer:             signerName,
+		SignedTime:         getTime(signedTimestamp),
+		SigRef:             sigRef,
+		Diff:               diff,
+		ContainerImages:    containerImages,
+		Provenances:        provenances,
+		DryRunUsedForMatch: dryRunUsedForMatch,
 	}, nil
 }
 
-func matchResourceWithManifest(obj unstructured.Unstructured, foundManifestBytes []byte, ignoreFields []string, dryRunNamespace string, checkDryRunForApply bool) (bool, *mapnode.DiffResult, error) {
+func matchResourceWithManifest(obj unstructured.Unstructured, foundManifestBytes []byte, ignoreFields []string, dryRunNamespace string, checkDryRunForApply, disableDryRun bool) (bool, *mapnode.DiffResult, bool, error) {
 
 	apiVersion := obj.GetAPIVersion()
 	kind := obj.GetKind()
@@ -191,7 +200,7 @@ func matchResourceWithManifest(obj unstructured.Unstructured, foundManifestBytes
 	log.Debug("try direct matching")
 	matched, diff, err = directMatch(objBytes, foundManifestBytes)
 	if err != nil {
-		return false, nil, errors.Wrap(err, "error occured during diract match")
+		return false, nil, false, errors.Wrap(err, "error occured during diract match")
 	}
 	if diff != nil && len(ignoreFields) > 0 {
 		_, diff, _ = diff.Filter(ignoreFields)
@@ -201,14 +210,18 @@ func matchResourceWithManifest(obj unstructured.Unstructured, foundManifestBytes
 		diff = nil
 	}
 	if matched {
-		return true, nil, nil
+		return true, nil, false, nil
+	}
+
+	if disableDryRun {
+		return matched, diff, false, nil
 	}
 
 	// CASE2: dryrun create match
 	log.Debug("try dryrun create matching")
 	matched, diff, err = dryrunCreateMatch(objBytes, foundManifestBytes, clusterScope, isCRD, dryRunNamespace)
 	if err != nil {
-		return false, nil, errors.Wrap(err, "error occured during dryrun create match")
+		return false, nil, false, errors.Wrap(err, "error occured during dryrun create match")
 	}
 	if diff != nil && len(ignoreFields) > 0 {
 		_, diff, _ = diff.Filter(ignoreFields)
@@ -218,7 +231,7 @@ func matchResourceWithManifest(obj unstructured.Unstructured, foundManifestBytes
 		diff = nil
 	}
 	if matched {
-		return true, nil, nil
+		return true, nil, true, nil
 	}
 
 	// CASE3: dryrun apply match
@@ -226,7 +239,7 @@ func matchResourceWithManifest(obj unstructured.Unstructured, foundManifestBytes
 		log.Debug("try dryrun apply matching")
 		matched, diff, err = dryrunApplyMatch(objBytes, foundManifestBytes, clusterScope, isCRD, dryRunNamespace)
 		if err != nil {
-			return false, nil, errors.Wrap(err, "error occured during dryrun apply match")
+			return false, nil, false, errors.Wrap(err, "error occured during dryrun apply match")
 		}
 		if diff != nil && len(ignoreFields) > 0 {
 			_, diff, _ = diff.Filter(ignoreFields)
@@ -236,11 +249,11 @@ func matchResourceWithManifest(obj unstructured.Unstructured, foundManifestBytes
 			diff = nil
 		}
 		if matched {
-			return true, nil, nil
+			return true, nil, true, nil
 		}
 	}
 
-	return false, diff, nil
+	return false, diff, false, nil
 }
 
 func directMatch(objBytes, manifestBytes []byte) (bool, *mapnode.DiffResult, error) {

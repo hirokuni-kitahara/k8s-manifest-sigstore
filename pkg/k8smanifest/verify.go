@@ -40,7 +40,7 @@ type SignatureVerifier interface {
 	Verify() (bool, string, *int64, error)
 }
 
-func NewSignatureVerifier(objYAMLBytes []byte, sigRef string, pubkeyPath *string, annotationConfig AnnotationConfig) SignatureVerifier {
+func NewSignatureVerifier(objYAMLBytes []byte, sigRef string, pubkeyPath *string, annotationConfig AnnotationConfig, simple bool) SignatureVerifier {
 	var imageRef, resourceRef string
 	if strings.HasPrefix(sigRef, InClusterObjectPrefix) {
 		resourceRef = sigRef
@@ -61,7 +61,10 @@ func NewSignatureVerifier(objYAMLBytes []byte, sigRef string, pubkeyPath *string
 		pubkeyPathString = pubkeyPath
 	}
 
-	if imageRef != "" && imageRef != SigRefEmbeddedInAnnotation {
+	if simple {
+		maskFields := loadMaskFeilds()
+		return &SimpleSignatureVerifier{objBytes: objYAMLBytes, annotations: annotations, pubkeyPathString: pubkeyPathString, annotationConfig: annotationConfig, maskFields: maskFields}
+	} else if imageRef != "" && imageRef != SigRefEmbeddedInAnnotation {
 		return &ImageSignatureVerifier{imageRef: imageRef, onMemoryCacheEnabled: true, pubkeyPathString: pubkeyPathString, annotationConfig: annotationConfig}
 	} else {
 		return &BlobSignatureVerifier{annotations: annotations, resourceRef: resourceRef, pubkeyPathString: pubkeyPathString, annotationConfig: annotationConfig}
@@ -197,7 +200,7 @@ func (v *BlobSignatureVerifier) Verify() (bool, string, *int64, error) {
 	if sigType == sigtypes.SigTypeUnknown {
 		return false, "", nil, errors.New("failed to judge signature type from public key configuration")
 	} else if sigType == sigtypes.SigTypeCosign {
-		return k8smnfcosign.VerifyBlob(msgBytes, sigBytes, certBytes, bundleBytes, v.pubkeyPathString)
+		return k8smnfcosign.VerifyBlob(msgBytes, sigBytes, certBytes, bundleBytes, v.pubkeyPathString, false)
 	} else if sigType == sigtypes.SigTypePGP {
 		return pgp.VerifyBlob(msgBytes, sigBytes, v.pubkeyPathString)
 	} else if sigType == sigtypes.SigTypeX509 {
@@ -257,6 +260,56 @@ func (v *BlobSignatureVerifier) getSignatures() (map[string][]byte, error) {
 		sigMap[BundleAnnotationBaseName] = []byte(bundle)
 	}
 	return sigMap, nil
+}
+
+type SimpleSignatureVerifier struct {
+	annotations      map[string]string
+	pubkeyPathString *string
+	annotationConfig AnnotationConfig
+	objBytes         []byte
+	maskFields       []string
+}
+
+func (v *SimpleSignatureVerifier) Verify() (bool, string, *int64, error) {
+	objNode, err := mapnode.NewFromYamlBytes(v.objBytes)
+	if err != nil {
+		return false, "", nil, errors.Wrap(err, "failed to load object YAML bytes as mapnode")
+	}
+	msgStr := objNode.Mask(v.maskFields).ToJson()
+	msgBytes := []byte(msgStr)
+	signatureAnnotationKey := v.annotationConfig.SignatureAnnotationKey()
+	sigStr, ok := v.annotations[signatureAnnotationKey]
+	if !ok {
+		return false, "", nil, fmt.Errorf("`%s` is not found in the annotations", signatureAnnotationKey)
+	}
+	sigBytes := []byte(sigStr)
+	certificateAnnotationKey := v.annotationConfig.CertificateAnnotationKey()
+	budnleAnnotationKey := v.annotationConfig.BundleAnnotationKey()
+
+	var certBytes []byte
+	cert := v.annotations[certificateAnnotationKey]
+	if cert != "" {
+		certBytes = []byte(cert)
+	}
+
+	var bundleBytes []byte
+	bundle := v.annotations[budnleAnnotationKey]
+	if bundle != "" {
+		bundleBytes = []byte(bundle)
+	}
+
+	sigType := sigtypes.GetSignatureTypeFromPublicKey(v.pubkeyPathString)
+	if sigType == sigtypes.SigTypeUnknown {
+		return false, "", nil, errors.New("failed to judge signature type from public key configuration")
+	} else if sigType == sigtypes.SigTypeCosign {
+		return k8smnfcosign.VerifyBlob(msgBytes, sigBytes, certBytes, bundleBytes, v.pubkeyPathString, true)
+	} else if sigType == sigtypes.SigTypePGP {
+		return pgp.VerifyBlob(msgBytes, sigBytes, v.pubkeyPathString)
+	} else if sigType == sigtypes.SigTypeX509 {
+		return x509.VerifyBlob(msgBytes, sigBytes, certBytes, v.pubkeyPathString)
+	}
+
+	return false, "", nil, errors.New("unknown error")
 }
 
 // This is an interface for fetching YAML manifest

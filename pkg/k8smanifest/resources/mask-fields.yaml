@@ -1,0 +1,21 @@
+# common
+- metadata.annotations.cosign.sigstore.dev/signature
+- metadata.annotations.cosign.sigstore.dev/signatureAlt
+- metadata.annotations.cosign.sigstore.dev/message
+- metadata.managedFields.*
+- metadata.resourceVersion
+- metadata.selfLink
+- metadata.annotations.kubectl.kubernetes.io/last-applied-configuration
+- metadata.annotations.namespace
+- metadata.creationTimestamp
+- metadata.generation
+- metadata.uid
+- metadata.finalizers
+- metadata.labels.app.kubernetes.io/instance
+- status
+
+# Endpoints
+- metadata.annotations.control-plane.alpha.kubernetes.io/leader
+
+# Lease
+- spec.renewTime

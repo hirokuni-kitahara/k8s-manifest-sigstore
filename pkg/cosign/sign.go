@@ -82,7 +82,7 @@ func SignImage(imageRef string, keyPath, certPath *string, pf cosign.PassFunc, i
 	return clisign.SignCmd(context.Background(), opt, regOpt, imageAnnotations, []string{imageRef}, certPathStr, true, "", false, false, "")
 }
 
-func SignBlob(blobPath string, keyPath, certPath *string, pf cosign.PassFunc) (map[string][]byte, error) {
+func SignBlob(blobPath string, keyPath, certPath *string, pf cosign.PassFunc, simple bool) (map[string][]byte, error) {
 	// TODO: add support for sk (security key) and idToken (identity token for cert from fulcio)
 	sk := false
 	idToken := ""
@@ -125,6 +125,8 @@ func SignBlob(blobPath string, keyPath, certPath *string, pf cosign.PassFunc) (m
 	regOpt := cliopt.RegistryOptions{}
 
 	m := map[string][]byte{}
+	
+	// For debug, `message` is added even in "simple" mode
 	rawMsg, err := ioutil.ReadFile(blobPath)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to load a file to be signed")

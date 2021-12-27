@@ -27,6 +27,13 @@ build:
 	go mod tidy
 	CGO_ENABLED=0 GOARCH=amd64 GO111MODULE=on go build -ldflags $(LDFLAGS) -a -o kubectl-sigstore ./cmd/kubectl-sigstore
 
+.PHONY: cluster-sigstore
+cluster-sigstore:
+	@echo building binary for cli
+	go mod tidy
+	CGO_ENABLED=0 GOARCH=amd64 GO111MODULE=on go build -ldflags $(LDFLAGS) -a -o cluster-sigstore ./cmd/cluster-sigstore
+
+
 .PHONY: kubectl-sigstore
 kubectl-sigstore: build
 

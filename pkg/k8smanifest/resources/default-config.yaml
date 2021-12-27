@@ -40,6 +40,14 @@ ignoreFields:
     - metadata.annotations.deprecated.daemonset.template.generation
     objects:
     - kind: DaemonSet
+  - fields:
+    - metadata.annotations.control-plane.alpha.kubernetes.io/leader
+    objects:
+    - kind: Endpoints
+  - fields:
+    - spec.renewTime
+    objects:
+    - kind: Lease
   # TODO: default config for OpenShift resources should be moved to an another config file
   - fields:
     - spec.host

@@ -60,7 +60,7 @@ func Sign(inputDir string, so *SignOption) ([]byte, error) {
 		output = so.Output
 	}
 
-	signedBytes, err := NewSigner(so.ImageRef, so.KeyPath, so.CertPath, output, so.ApplySigConfigMap, so.AnnotationConfig, so.PassFunc).Sign(inputDir, output, so.ImageAnnotations)
+	signedBytes, err := NewSigner(so.ImageRef, so.KeyPath, so.CertPath, output, so.ApplySigConfigMap, so.AnnotationConfig, so.PassFunc, so.Simple).Sign(inputDir, output, so.ImageAnnotations)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to sign the specified content")
 	}
@@ -72,7 +72,7 @@ type Signer interface {
 	Sign(inputDir, output string, imageAnnotations map[string]interface{}) ([]byte, error)
 }
 
-func NewSigner(imageRef, keyPath, certPath, output string, doApply bool, AnnotationConfig AnnotationConfig, pf cosign.PassFunc) Signer {
+func NewSigner(imageRef, keyPath, certPath, output string, doApply bool, AnnotationConfig AnnotationConfig, pf cosign.PassFunc, simple bool) Signer {
 	var prikeyPath *string
 	if keyPath != "" {
 		prikeyPath = &keyPath
@@ -85,7 +85,10 @@ func NewSigner(imageRef, keyPath, certPath, output string, doApply bool, Annotat
 	if strings.HasPrefix(output, InClusterObjectPrefix) {
 		createSigConfigMap = true
 	}
-	if imageRef != "" {
+	if simple {
+		maskFields := loadMaskFeilds()
+		return &SimpleSigner{AnnotationConfig: AnnotationConfig, prikeyPath: prikeyPath, passFunc: pf, maskFields: maskFields}
+	} else if imageRef != "" {
 		return &ImageSigner{AnnotationConfig: AnnotationConfig, imageRef: imageRef, prikeyPath: prikeyPath, certPath: certPathP, passFunc: pf}
 	} else {
 		return &BlobSigner{AnnotationConfig: AnnotationConfig, createSigConfigMap: createSigConfigMap, doApply: doApply, prikeyPath: prikeyPath, certPath: certPathP, passFunc: pf}
@@ -168,7 +171,7 @@ func (s *BlobSigner) Sign(inputDir, output string, imageAnnotations map[string]i
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create a temporary blob file")
 	}
-	sigMaps, err = k8scosign.SignBlob(tmpBlobFile, s.prikeyPath, s.certPath, s.passFunc)
+	sigMaps, err = k8scosign.SignBlob(tmpBlobFile, s.prikeyPath, s.certPath, s.passFunc, false)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to sign a blob file")
 	}
@@ -203,6 +206,56 @@ func (s *BlobSigner) Sign(inputDir, output string, imageAnnotations map[string]i
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to write a signed YAML into")
 		}
+	}
+	return signedBytes, nil
+}
+
+type SimpleSigner struct {
+	AnnotationConfig AnnotationConfig
+	maskFields       []string
+	prikeyPath       *string
+	passFunc         cosign.PassFunc
+}
+
+func (s *SimpleSigner) Sign(inputDir, output string, imageAnnotations map[string]interface{}) ([]byte, error) {
+	dir, err := ioutil.TempDir("", "kubectl-sigstore-temp-dir")
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create a temporary directory for signing")
+	}
+	defer os.RemoveAll(dir)
+	tmpBlobFile := filepath.Join(dir, "tmp-blob-file")
+
+	inBytes, err := ioutil.ReadFile(inputDir)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to read an input file")
+	}
+
+	inNode, err := mapnode.NewFromYamlBytes(inBytes)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to convert an input file to mapnode")
+	}
+
+	maskedBytesStr := inNode.Mask(s.maskFields).ToJson()
+
+	var signedBytes []byte
+	var sigMaps map[string][]byte
+	err = ioutil.WriteFile(tmpBlobFile, []byte(maskedBytesStr), 0777)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create a temporary blob file")
+	}
+	sigMaps, err = k8scosign.SignBlob(tmpBlobFile, s.prikeyPath, nil, s.passFunc, true)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to sign a blob file")
+	}
+
+	// generate a signed YAML file
+	signedBytes, err = generateSignedYAMLManifest(inputDir, "", sigMaps, imageAnnotations, s.AnnotationConfig)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to generate a signed YAML")
+	}
+	err = ioutil.WriteFile(output, signedBytes, 0644)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to write a signed YAML into")
 	}
 	return signedBytes, nil
 }
