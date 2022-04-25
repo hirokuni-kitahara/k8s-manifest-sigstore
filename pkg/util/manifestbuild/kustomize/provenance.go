@@ -24,12 +24,16 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"io/ioutil"
 	"os"
+	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
+	"github.com/ghodss/yaml"
 	"github.com/pkg/errors"
 	"github.com/secure-systems-lab/go-securesystemslib/dsse"
 
@@ -183,10 +187,115 @@ func OverwriteArtifactInProvenance(provPath, overwriteArtifact string) (string, 
 	return newProvPath, nil
 }
 
+func ReconstructBuildEnvironment(baseDir, provPath, reconstructRootDir string) (string, error) {
+	rootDirInRepo, err := GitExec(baseDir, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", errors.Wrap(err, "failed to get root directory of repository")
+	}
+	baseAbsPath, err := filepath.Abs(baseDir)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to get absolute path of base dir")
+	}
+	rootDirInRepo = strings.TrimSuffix(rootDirInRepo, "\n")
+	relativePath := strings.TrimPrefix(baseAbsPath, rootDirInRepo)
+
+	err = copyDir(rootDirInRepo, reconstructRootDir)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to copy kustomize base dir to the temporary dir")
+	}
+
+	b, err := ioutil.ReadFile(provPath)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to read provenance data")
+	}
+	var prov *intoto.Statement
+	err = json.Unmarshal(b, &prov)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to unmarshal provenance data into in-toto.Statement")
+	}
+	predicateBytes, _ := json.Marshal(prov.Predicate)
+	var predicate intotoprov02.ProvenancePredicate
+	err = json.Unmarshal(predicateBytes, &predicate)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to unmarshal predicate into intotoprov02.ProvenancePredicate")
+	}
+	provMap := map[string]intotoprov02.DigestSet{}
+	for _, material := range predicate.Materials {
+		uri := material.URI
+		digest := material.Digest
+		provMap[uri] = digest
+	}
+
+	reconstructBaseDir := filepath.Join(reconstructRootDir, relativePath)
+	// need resolve symlink if any because git command do this and it possibly causes path inconsistency later
+	reconstructBaseDir, err = filepath.EvalSymlinks(reconstructBaseDir)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to resolve symlink")
+	}
+	err = overwriteCommitIDInKustomizeBaseDir(reconstructBaseDir, provMap)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to overwrite kustomize commit IDs")
+	}
+	return reconstructBaseDir, nil
+}
+
+func overwriteCommitIDInKustomizeBaseDir(baseDir string, provMap map[string]intotoprov02.DigestSet) error {
+	repoURL, currentRevision, _, _, err := checkRepoInfoOfKustomizeBase(baseDir)
+	if err != nil {
+		return errors.Wrap(err, "failed to get repo info of base dir")
+	}
+	if digest, ok := provMap[repoURL]; ok {
+		commitInProv := digest["commit"]
+		if currentRevision != commitInProv {
+			_, err = GitExec(baseDir, "checkout", commitInProv)
+			if err != nil {
+				return errors.Wrap(err, "failed to checkout a commit in the base repo")
+			}
+		}
+	}
+	kustFullPath := filepath.Join(baseDir, "kustomization.yaml")
+
+	k, err := loadKustomizationYAML(kustFullPath)
+	if err != nil {
+		return errors.Wrap(err, "failed to read kustomization.yaml in base repo")
+	}
+	for i := range k.Resources {
+		resourceURL := k.Resources[i]
+		parts := strings.Split(resourceURL, "/")
+		subParts := []string{}
+		gitJ := -1
+		for j := range parts {
+			if parts[j] == "github.com" {
+				gitJ = j
+			}
+			if j <= gitJ+2 {
+				subParts = append(subParts, parts[j])
+			}
+		}
+		gitRepoSubStr := strings.Join(subParts, "/")
+		for repo, digest := range provMap {
+			if strings.Contains(repo, gitRepoSubStr) {
+				re := regexp.MustCompile(`\?ref=.*`)
+				newCommitRef := fmt.Sprintf("?ref=%s", digest["commit"])
+				resourceURL = string(re.ReplaceAll([]byte(resourceURL), []byte(newCommitRef)))
+				break
+			}
+		}
+		k.Resources[i] = resourceURL
+	}
+
+	kustomizeConfigBytes, _ := yaml.Marshal(k)
+	err = ioutil.WriteFile(kustFullPath, kustomizeConfigBytes, 0755)
+	if err != nil {
+		return errors.Wrap(err, "failed to write kustomization.yaml")
+	}
+	return nil
+}
+
 func generateMaterialsFromKustomization(kustomizeBase string) ([]intotoprov02.ProvenanceMaterial, error) {
 	var resources []*KustomizationResource
 	var err error
-	repoURL, repoRevision, kustPath, err := checkRepoInfoOfKustomizeBase(kustomizeBase)
+	repoURL, repoRevision, _, kustPath, err := checkRepoInfoOfKustomizeBase(kustomizeBase)
 	if err == nil {
 		// a repository in local filesystem
 		resources, err = LoadKustomization(kustPath, "", repoURL, repoRevision, true)
@@ -195,7 +304,7 @@ func generateMaterialsFromKustomization(kustomizeBase string) ([]intotoprov02.Pr
 		resources, err = LoadKustomization(kustomizeBase, "", "", "", false)
 	}
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "failed to load kustomization to generate manifest")
 	}
 	materials := []intotoprov02.ProvenanceMaterial{}
 	for _, r := range resources {
@@ -208,29 +317,29 @@ func generateMaterialsFromKustomization(kustomizeBase string) ([]intotoprov02.Pr
 	return materials, nil
 }
 
-func checkRepoInfoOfKustomizeBase(kustomizeBase string) (string, string, string, error) {
+func checkRepoInfoOfKustomizeBase(kustomizeBase string) (string, string, string, string, error) {
 	url, err := GitExec(kustomizeBase, "config", "--get", "remote.origin.url")
 	if err != nil {
-		return "", "", "", errors.Wrap(err, "failed to get remote.origin.url")
+		return "", "", "", "", errors.Wrap(err, "failed to get remote.origin.url")
 	}
 	url = strings.TrimSuffix(url, "\n")
 	revision, err := GitExec(kustomizeBase, "rev-parse", "HEAD")
 	if err != nil {
-		return "", "", "", errors.Wrap(err, "failed to get revision HEAD")
+		return "", "", "", "", errors.Wrap(err, "failed to get revision HEAD")
 	}
 	revision = strings.TrimSuffix(revision, "\n")
 	absKustBase, err := filepath.Abs(kustomizeBase)
 	if err != nil {
-		return "", "", "", errors.Wrap(err, "failed to get absolute path of kustomize base dir")
+		return "", "", "", "", errors.Wrap(err, "failed to get absolute path of kustomize base dir")
 	}
 	rootDirInRepo, err := GitExec(kustomizeBase, "rev-parse", "--show-toplevel")
 	if err != nil {
-		return "", "", "", errors.Wrap(err, "failed to get root directory of repository")
+		return "", "", "", "", errors.Wrap(err, "failed to get root directory of repository")
 	}
 	rootDirInRepo = strings.TrimSuffix(rootDirInRepo, "\n")
 	relativePath := strings.TrimPrefix(absKustBase, rootDirInRepo)
 	relativePath = strings.TrimPrefix(relativePath, "/")
-	return url, revision, relativePath, nil
+	return url, revision, rootDirInRepo, relativePath, nil
 }
 
 func resourceToMaterial(kr *KustomizationResource) *intotoprov02.ProvenanceMaterial {
@@ -307,4 +416,64 @@ func (es *IntotoSigner) KeyID() (string, error) {
 
 func (es *IntotoSigner) Public() crypto.PublicKey {
 	return es.key.Public()
+}
+
+// copy an entire directory recursively
+func copyDir(src string, dst string) error {
+	var err error
+	var fds []os.FileInfo
+	var srcinfo os.FileInfo
+
+	if srcinfo, err = os.Stat(src); err != nil {
+		return err
+	}
+
+	if srcinfo.IsDir() {
+		if err = os.MkdirAll(dst, srcinfo.Mode()); err != nil {
+			return err
+		}
+
+		if fds, err = ioutil.ReadDir(src); err != nil {
+			return err
+		}
+		for _, fd := range fds {
+			srcfp := path.Join(src, fd.Name())
+			dstfp := path.Join(dst, fd.Name())
+
+			if fd.IsDir() {
+				if err = copyDir(srcfp, dstfp); err != nil {
+					return err
+				}
+			} else {
+				if err = copyFile(srcfp, dstfp); err != nil {
+					return err
+				}
+			}
+		}
+	} else {
+		if err = copyFile(src, dst); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// copy a single file
+func copyFile(src string, dst string) error {
+	fi, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+
+	input, err := ioutil.ReadFile(src)
+	if err != nil {
+		return err
+	}
+
+	err = ioutil.WriteFile(dst, input, fi.Mode())
+	if err != nil {
+		return err
+	}
+	return nil
 }

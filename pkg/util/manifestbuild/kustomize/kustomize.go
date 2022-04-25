@@ -82,16 +82,8 @@ func LoadKustomization(fpath, baseDir, gitURL, gitRevision string, inRemoteRepo 
 	if !FileExists(fpath) {
 		return nil, fmt.Errorf("%s does not exists", fpath)
 	}
-	data, err := ioutil.ReadFile(fpath)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to read %s", fpath)
-	}
-	var k *types.Kustomization
-	err = yaml.Unmarshal(data, &k)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to unmarshal a content of %s into %T", fpath, k)
-	}
-	k.FixKustomizationPostUnmarshalling()
+
+	k, err := loadKustomizationYAML(fpath)
 
 	// these resoruces are used as "provenance materials" later
 	// files in a local filesystem --> File resource
@@ -135,7 +127,7 @@ func LoadKustomization(fpath, baseDir, gitURL, gitRevision string, inRemoteRepo 
 				// files in a local filesystem should be included in resources as File resource
 				rHash, err := Sha256Hash(rPath)
 				if err != nil {
-					return nil, errors.Wrapf(err, "failed to　get sha256 hash of %s", rPath)
+					return nil, errors.Wrapf(err, "failed to get sha256 hash of %s", rPath)
 				}
 				fr := &KustomizationResource{File: &FileInfo{Name: rPath, Hash: rHash}}
 				resources = append(resources, fr)
@@ -148,7 +140,7 @@ func LoadKustomization(fpath, baseDir, gitURL, gitRevision string, inRemoteRepo 
 					// if this is not in a remote repository, the kustomization.yaml will be added to File resources
 					kustHash, err := Sha256Hash(kustFile)
 					if err != nil {
-						return nil, errors.Wrapf(err, "failed to　get sha256 hash of %s", kustFile)
+						return nil, errors.Wrapf(err, "failed to get sha256 hash of %s", kustFile)
 					}
 					fr := &KustomizationResource{File: &FileInfo{Name: kustFile, Hash: kustHash}}
 					resources = append(resources, fr)
@@ -165,6 +157,20 @@ func LoadKustomization(fpath, baseDir, gitURL, gitRevision string, inRemoteRepo 
 	}
 
 	return resources, nil
+}
+
+func loadKustomizationYAML(fpath string) (*types.Kustomization, error) {
+	data, err := ioutil.ReadFile(fpath)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to read %s", fpath)
+	}
+	var k *types.Kustomization
+	err = yaml.Unmarshal(data, &k)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to unmarshal a content of %s into %T", fpath, k)
+	}
+	k.FixKustomizationPostUnmarshalling()
+	return k, nil
 }
 
 // get a sha 256 hash for a file

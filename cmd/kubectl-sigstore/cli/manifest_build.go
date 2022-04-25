@@ -38,6 +38,7 @@ func NewCmdManifestBuild() *cobra.Command {
 	var baseDir string
 	var imageRef string
 	var keyPath string
+	var recordedProvenancePath string
 	var outputPath string
 	var provenancePath string
 	var kustomizeMode bool
@@ -47,7 +48,7 @@ func NewCmdManifestBuild() *cobra.Command {
 		Short: "A command to build a Kubernetes YAML manifest with provenance",
 		RunE: func(cmd *cobra.Command, args []string) error {
 
-			err := buildManifest(baseDir, outputPath, provenancePath, imageRef, keyPath, kustomizeMode, signProvenance)
+			err := buildManifest(baseDir, recordedProvenancePath, outputPath, provenancePath, imageRef, keyPath, kustomizeMode, signProvenance)
 			if err != nil {
 				return err
 			}
@@ -58,6 +59,7 @@ func NewCmdManifestBuild() *cobra.Command {
 	cmd.PersistentFlags().BoolVar(&kustomizeMode, "kustomize", false, "enable kustomize mode")
 	cmd.PersistentFlags().BoolVar(&signProvenance, "sign", false, "whether to sign a generated provenance for uploading it to rekor")
 	cmd.PersistentFlags().StringVarP(&baseDir, "dir", "d", "", "kustomize base dir")
+	cmd.PersistentFlags().StringVarP(&recordedProvenancePath, "recorded-provenance", "r", "", "path to input provenance file")
 	cmd.PersistentFlags().StringVarP(&outputPath, "output", "o", "", "path to output manifest file")
 	cmd.PersistentFlags().StringVarP(&provenancePath, "provenance", "p", "", "path to output provenance file")
 	cmd.PersistentFlags().StringVarP(&imageRef, "image", "i", "", "image reference in which a generated manifest is stored")
@@ -65,10 +67,23 @@ func NewCmdManifestBuild() *cobra.Command {
 	return cmd
 }
 
-func buildManifest(baseDir, outputPath, provenancePath, imageRef, keyPath string, kustomizeMode, signProvenance bool) error {
+func buildManifest(baseDir, recordedProvenancePath, outputPath, provenancePath, imageRef, keyPath string, kustomizeMode, signProvenance bool) error {
 
 	if !kustomizeMode {
 		return fmt.Errorf("only the following manifest types are supported: %v", supportedMode)
+	}
+
+	if recordedProvenancePath != "" {
+		reconstRootDir, err := ioutil.TempDir("", "manifest-build-reconstruct")
+		if err != nil {
+			return errors.Wrap(err, "failed to create temporary directory for reconstruction")
+		}
+		defer os.RemoveAll(reconstRootDir)
+		reconstDir, err := kustbuildutil.ReconstructBuildEnvironment(baseDir, recordedProvenancePath, reconstRootDir)
+		if err != nil {
+			return errors.Wrap(err, "failed to reconstruct build environment")
+		}
+		baseDir = reconstDir
 	}
 
 	startTime := time.Now().UTC()
