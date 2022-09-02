@@ -30,7 +30,6 @@ import (
 
 	"github.com/go-openapi/runtime"
 	"github.com/google/go-containerregistry/pkg/name"
-	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/pkg/errors"
 
 	"github.com/sigstore/cosign/cmd/cosign/cli/fulcio"
@@ -42,7 +41,6 @@ import (
 	sigs "github.com/sigstore/cosign/pkg/signature"
 	k8smnfutil "github.com/sigstore/k8s-manifest-sigstore/pkg/util"
 	k8ssigx509 "github.com/sigstore/k8s-manifest-sigstore/pkg/util/sigtypes/x509"
-	rekorclient "github.com/sigstore/rekor/pkg/client"
 	rekormodels "github.com/sigstore/rekor/pkg/generated/models"
 	rekortypes "github.com/sigstore/rekor/pkg/types"
 	hashedrekord "github.com/sigstore/rekor/pkg/types/hashedrekord/v0.0.1"
@@ -183,20 +181,6 @@ func VerifyBlob(msgBytes, sigBytes, certBytes, bundleBytes []byte, pubkeyPath *s
 		gzipBundle, _ := base64.StdEncoding.DecodeString(string(bundleBytes))
 		rawBundle = k8smnfutil.GzipDecompress(gzipBundle)
 	}
-
-	// if bundle is provided, try verifying it in offline first and return results if verified
-	// if bundleBytes != nil {
-	// 	gzipBundle, _ := base64.StdEncoding.DecodeString(string(bundleBytes))
-	// 	rawBundle := k8smnfutil.GzipDecompress(gzipBundle)
-	// 	b64Bundle := base64.StdEncoding.EncodeToString(rawBundle)
-	// 	verified, signerName, signedTimestamp, err := verifyBundle(rawMsg, b64Sig, rawCert, []byte(b64Bundle))
-	// 	log.Debugf("verifyBundle() results: verified: %v, signerName: %s, err: %s", verified, signerName, err)
-	// 	if verified {
-	// 		log.Debug("Verified by bundle information")
-	// 		return verified, signerName, signedTimestamp, err
-	// 	}
-	// }
-	// otherwise, use cosign.VerifyBlobSignature() for verification
 
 	keyRef := ""
 	if pubkeyPath != nil {
@@ -352,71 +336,6 @@ func loadCertificate(pemBytes []byte) (*x509.Certificate, error) {
 // 	}
 // 	return nil, errors.New("empty response")
 // }
-
-func verifyBundle(rawMsg, b64Sig, rawCert, b64Bundle []byte) (bool, string, *int64, error) {
-	sig := &cosignBundleSignature{
-		message:         rawMsg,
-		base64Signature: b64Sig,
-		cert:            rawCert,
-		base64Bundle:    b64Bundle,
-	}
-	rekorSeverURL := GetRekorServerURL()
-	rClient, err := rekorclient.GetRekorClient(rekorSeverURL)
-	if err != nil {
-		return false, "", nil, errors.Wrap(err, "failed to get rekor client")
-	}
-	verified, err := cosign.VerifyBundle(context.Background(), sig, rClient)
-	if err != nil {
-		return false, "", nil, errors.Wrap(err, "verifying bundle")
-	}
-	var signerName string
-	if verified {
-		cert, _ := sig.Cert()
-		signerName = k8ssigx509.GetNameInfoFromX509Cert(cert)
-	}
-	return verified, signerName, nil, nil
-}
-
-type cosignBundleSignature struct {
-	v1.Layer
-	message         []byte // message will be used as sig.Payload()
-	base64Signature []byte
-	cert            []byte
-	base64Bundle    []byte
-}
-
-func (s *cosignBundleSignature) Annotations() (map[string]string, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (s *cosignBundleSignature) Payload() ([]byte, error) {
-	return s.message, nil
-}
-
-func (s *cosignBundleSignature) Base64Signature() (string, error) {
-	return string(s.base64Signature), nil
-}
-
-func (s *cosignBundleSignature) Cert() (*x509.Certificate, error) {
-	return loadCertificate(s.cert)
-}
-
-func (s *cosignBundleSignature) Chain() ([]*x509.Certificate, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (s *cosignBundleSignature) Bundle() (*bundle.RekorBundle, error) {
-	var b *bundle.RekorBundle
-	bundleStr, err := base64.StdEncoding.DecodeString(string(s.base64Bundle))
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to base64-decode the bundle")
-	}
-	err = json.Unmarshal([]byte(bundleStr), &b)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to Unamrshal() bundle")
-	}
-	return b, nil
-}
 
 func loadBundle(bundleBytes []byte) (*bundle.RekorBundle, error) {
 	var b *bundle.RekorBundle
