@@ -25,6 +25,8 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/go-openapi/runtime"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -92,7 +94,7 @@ func VerifyImage(resBundleRef, pubkeyPath, certRef, certChain, rekorURL, oidcIss
 	}
 
 	if pubkeyPath != "" {
-		pubKeyVerifier, err := sigs.PublicKeyFromKeyRef(context.Background(), pubkeyPath)
+		pubKeyVerifier, err := loadPublicKey(pubkeyPath)
 		if err != nil {
 			return false, "", nil, fmt.Errorf("failed to load public key; %s", err.Error())
 		}
@@ -227,7 +229,7 @@ func VerifyBlob(msgBytes, sigBytes, certBytes, bundleBytes []byte, pubkeyPath *s
 	var chain []*x509.Certificate
 	switch {
 	case keyRef != "":
-		pubKey, err = sigs.PublicKeyFromKeyRefWithHashAlgo(context.Background(), keyRef, crypto.SHA256)
+		pubKey, err = loadPublicKey(keyRef)
 		if err != nil {
 			return false, "", nil, fmt.Errorf("loading public key: %w", err)
 		}
@@ -481,4 +483,35 @@ func loadCertificateFromBundle(bundleBytes []byte) (*x509.Certificate, error) {
 	cert := certs[0]
 
 	return cert, nil
+}
+
+// whether file exists or not
+func fileExists(filepath string) bool {
+	info, err := os.Stat(filepath)
+	if os.IsNotExist(err) {
+		return false
+	}
+	return !info.IsDir()
+}
+
+func loadPublicKey(pubkeyRef string) (signature.Verifier, error) {
+	isRawPubkey := false
+	var pubkeyBytes []byte
+	if !strings.Contains(pubkeyRef, "://") {
+		if !fileExists(pubkeyRef) {
+			isRawPubkey = true
+			pubkeyBytes = []byte(pubkeyRef)
+		}
+	}
+	var pubKey signature.Verifier
+	var err error
+	if isRawPubkey {
+		pubKey, err = sigs.LoadPublicKeyRaw(pubkeyBytes, crypto.SHA256)
+	} else {
+		pubKey, err = sigs.PublicKeyFromKeyRef(context.Background(), pubkeyRef)
+	}
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to load public key")
+	}
+	return pubKey, nil
 }
