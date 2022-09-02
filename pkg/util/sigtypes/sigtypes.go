@@ -17,10 +17,9 @@
 package sigtypes
 
 import (
-	"context"
 	"fmt"
 
-	cosignsig "github.com/sigstore/cosign/pkg/signature"
+	"github.com/sigstore/k8s-manifest-sigstore/pkg/cosign"
 	"github.com/sigstore/k8s-manifest-sigstore/pkg/util/sigtypes/pgp"
 	"github.com/sigstore/k8s-manifest-sigstore/pkg/util/sigtypes/x509"
 	log "github.com/sirupsen/logrus"
@@ -47,7 +46,7 @@ func GetSignatureTypeFromPublicKey(keyPathPtr *string) SigType {
 	sumErr := map[string]string{}
 
 	// cosign public key
-	if _, err := cosignsig.PublicKeyFromKeyRef(context.Background(), keyRef); err == nil {
+	if _, err := cosign.LoadPublicKey(keyRef); err == nil {
 		return SigTypeCosign
 	} else {
 		sumErr["cosign"] = err.Error()

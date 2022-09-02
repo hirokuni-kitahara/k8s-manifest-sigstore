@@ -136,10 +136,18 @@ func getPublicKeyStream(keyRef string) (io.Reader, error) {
 		}
 		keyRingReader = bytes.NewBuffer(keyBytes)
 	} else {
-		kpath := filepath.Clean(keyRef)
-		keyRingReader, err = os.Open(kpath)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to open a public key")
+		if k8smnfutil.FileExists(keyRef) {
+			kpath := filepath.Clean(keyRef)
+			keyRingReader, err = os.Open(kpath)
+			if err != nil {
+				return nil, errors.Wrap(err, "failed to open a public key")
+			}
+		} else {
+			if k8smnfutil.IsB64(keyRef) {
+				keyRefBytes, _ := base64.StdEncoding.DecodeString(keyRef)
+				keyRef = string(keyRefBytes)
+			}
+			keyRingReader = bytes.NewReader([]byte(keyRef))
 		}
 	}
 	return keyRingReader, nil

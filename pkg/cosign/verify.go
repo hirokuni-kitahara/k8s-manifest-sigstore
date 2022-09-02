@@ -94,7 +94,7 @@ func VerifyImage(resBundleRef, pubkeyPath, certRef, certChain, rekorURL, oidcIss
 	}
 
 	if pubkeyPath != "" {
-		pubKeyVerifier, err := loadPublicKey(pubkeyPath)
+		pubKeyVerifier, err := LoadPublicKey(pubkeyPath)
 		if err != nil {
 			return false, "", nil, fmt.Errorf("failed to load public key; %s", err.Error())
 		}
@@ -229,7 +229,7 @@ func VerifyBlob(msgBytes, sigBytes, certBytes, bundleBytes []byte, pubkeyPath *s
 	var chain []*x509.Certificate
 	switch {
 	case keyRef != "":
-		pubKey, err = loadPublicKey(keyRef)
+		pubKey, err = LoadPublicKey(keyRef)
 		if err != nil {
 			return false, "", nil, fmt.Errorf("loading public key: %w", err)
 		}
@@ -494,18 +494,23 @@ func fileExists(filepath string) bool {
 	return !info.IsDir()
 }
 
-func loadPublicKey(pubkeyRef string) (signature.Verifier, error) {
+func LoadPublicKey(pubkeyRef string) (signature.Verifier, error) {
 	isRawPubkey := false
 	var pubkeyBytes []byte
 	if !strings.Contains(pubkeyRef, "://") {
 		if !fileExists(pubkeyRef) {
 			isRawPubkey = true
+			if k8smnfutil.IsB64(pubkeyRef) {
+				pubkeyRefBytes, _ := base64.StdEncoding.DecodeString(pubkeyRef)
+				pubkeyRef = string(pubkeyRefBytes)
+			}
 			pubkeyBytes = []byte(pubkeyRef)
 		}
 	}
 	var pubKey signature.Verifier
 	var err error
 	if isRawPubkey {
+
 		pubKey, err = sigs.LoadPublicKeyRaw(pubkeyBytes, crypto.SHA256)
 	} else {
 		pubKey, err = sigs.PublicKeyFromKeyRef(context.Background(), pubkeyRef)

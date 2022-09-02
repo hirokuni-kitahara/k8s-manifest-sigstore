@@ -21,6 +21,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"io/fs"
@@ -360,4 +361,18 @@ func getSourceDigest(srcPath string, moList []*MutateOptions) (string, error) {
 	oneYaml := ConcatenateYAMLs(mYamls)
 	digest := sha256.Sum256(oneYaml)
 	return fmt.Sprintf("%x", digest), nil
+}
+
+func IsB64(str string) bool {
+	_, err := base64.StdEncoding.DecodeString(str)
+	return err == nil
+}
+
+// whether file exists or not
+func FileExists(filepath string) bool {
+	info, err := os.Stat(filepath)
+	if os.IsNotExist(err) {
+		return false
+	}
+	return !info.IsDir()
 }

@@ -134,13 +134,17 @@ func LoadCertificate(certRef string) (*x509.Certificate, error) {
 		}
 		certPemBytes = tmpCertBytes
 	} else {
-		if fileExists(certRef) {
+		if k8smnfutil.FileExists(certRef) {
 			cpath := filepath.Clean(certRef)
 			certPemBytes, err = os.ReadFile(cpath)
 			if err != nil {
 				return nil, fmt.Errorf("failed to read a cert file; %s", err.Error())
 			}
 		} else {
+			if k8smnfutil.IsB64(certRef) {
+				certRefBytes, _ := base64.StdEncoding.DecodeString(certRef)
+				certRef = string(certRefBytes)
+			}
 			certPemBytes = []byte(certRef)
 		}
 	}
@@ -183,13 +187,17 @@ func LoadCertificateChain(certChainRef string) ([]*x509.Certificate, error) {
 		}
 		certPemBytes = tmpCertBytes
 	} else {
-		if fileExists(certChainRef) {
+		if k8smnfutil.FileExists(certChainRef) {
 			cpath := filepath.Clean(certChainRef)
 			certPemBytes, err = os.ReadFile(cpath)
 			if err != nil {
 				return nil, fmt.Errorf("failed to read a cert file; %s", err.Error())
 			}
 		} else {
+			if k8smnfutil.IsB64(certChainRef) {
+				certChainRefBytes, _ := base64.StdEncoding.DecodeString(certChainRef)
+				certChainRef = string(certChainRefBytes)
+			}
 			certPemBytes = []byte(certChainRef)
 		}
 	}
@@ -265,13 +273,4 @@ func GetNameInfoFromX509Cert(cert *x509.Certificate) string {
 // whether the certificate is self signed or not
 func isSelfSignedCert(cert *x509.Certificate) bool {
 	return bytes.Equal(cert.RawSubject, cert.RawIssuer)
-}
-
-// whether file exists or not
-func fileExists(filepath string) bool {
-	info, err := os.Stat(filepath)
-	if os.IsNotExist(err) {
-		return false
-	}
-	return !info.IsDir()
 }
