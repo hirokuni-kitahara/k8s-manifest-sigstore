@@ -19,15 +19,15 @@ require (
 	github.com/r3labs/diff v1.1.0
 	github.com/secure-systems-lab/go-securesystemslib v0.4.0
 	github.com/sigstore/cosign v1.10.1
-	github.com/sigstore/fulcio v0.1.2-0.20220114150912-86a2036f9bc7
-	github.com/sigstore/rekor v0.4.1-0.20220114213500-23f583409af3
-	github.com/sigstore/sigstore v1.2.1-0.20220614141825-9c0e2e247545
+	github.com/sigstore/fulcio v0.5.3
+	github.com/sigstore/rekor v0.11.0
+	github.com/sigstore/sigstore v1.4.1-0.20220823190236-c645ceb9d075
 	github.com/sirupsen/logrus v1.9.0
 	github.com/spf13/afero v1.8.2
 	github.com/spf13/cobra v1.5.0
 	github.com/tektoncd/chains v0.3.0
-	github.com/theupdateframework/go-tuf v0.3.0
-	golang.org/x/sync v0.0.0-20220601150217-0de741cfad7f
+	github.com/theupdateframework/go-tuf v0.3.1
+	golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4
 	gopkg.in/yaml.v2 v2.4.0
 	k8s.io/api v0.23.5
 	k8s.io/apimachinery v0.23.5
@@ -43,3 +43,8 @@ require (
 // `go install` only works with a project which has no replace for main module in go.mod.
 // So please uncomment the below manually if you are working on a fork repo and if you want to test your local changes.
 // replace github.com/sigstore/k8s-manifest-sigstore => ./
+
+replace (
+	github.com/sigstore/cosign => ../cosign
+	github.com/sigstore/k8s-manifest-sigstore => ./
+)

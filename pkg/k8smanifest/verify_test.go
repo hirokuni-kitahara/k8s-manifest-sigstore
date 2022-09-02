@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ghodss/yaml"
@@ -185,13 +186,6 @@ func TestVerifyResourceWithKeylessMultipleSignatures(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	keyPath := filepath.Join(tmpDir, "testpub")
-	err = initSingleTestFile(b64EncodedTestPubkey, keyPath)
-	if err != nil {
-		t.Errorf("failed to init a public key file for test: %s", err.Error())
-		return
-	}
-
 	fpath := "testdata/sample-configmap-keyless-multi-signed.yaml"
 	objBytes, err := os.ReadFile(fpath)
 	if err != nil {
@@ -210,9 +204,11 @@ func TestVerifyResourceWithKeylessMultipleSignatures(t *testing.T) {
 		t.Errorf("failed to base64 decode the signer config: %s", err.Error())
 		return
 	}
+	if strings.HasSuffix(string(signerConfig), "\n") {
+		signerConfig = []byte(strings.ReplaceAll(string(signerConfig), "\n", ""))
+	}
 	vo := &VerifyResourceOption{
 		verifyOption: verifyOption{
-			KeyPath: keyPath,
 			Signers: SignerList{
 				string(signerConfig), // this should match with the second signature
 			},

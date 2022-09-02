@@ -17,6 +17,7 @@
 package cosign
 
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"crypto/x509"
@@ -24,25 +25,28 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"os"
 
+	"github.com/go-openapi/runtime"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/sigstore/cosign/cmd/cosign/cli/fulcio"
 	cliopt "github.com/sigstore/cosign/cmd/cosign/cli/options"
 	"github.com/sigstore/cosign/cmd/cosign/cli/rekor"
-	cliverify "github.com/sigstore/cosign/cmd/cosign/cli/verify"
+	"github.com/sigstore/cosign/pkg/blob"
 	"github.com/sigstore/cosign/pkg/cosign"
 	"github.com/sigstore/cosign/pkg/cosign/bundle"
 	"github.com/sigstore/cosign/pkg/cosign/pkcs11key"
 	sigs "github.com/sigstore/cosign/pkg/signature"
-	fulcioapi "github.com/sigstore/fulcio/pkg/api"
 	k8smnfutil "github.com/sigstore/k8s-manifest-sigstore/pkg/util"
 	k8ssigx509 "github.com/sigstore/k8s-manifest-sigstore/pkg/util/sigtypes/x509"
 	rekorclient "github.com/sigstore/rekor/pkg/client"
+	rekormodels "github.com/sigstore/rekor/pkg/generated/models"
+	rekortypes "github.com/sigstore/rekor/pkg/types"
+	hashedrekord "github.com/sigstore/rekor/pkg/types/hashedrekord/v0.0.1"
+	rekord "github.com/sigstore/rekor/pkg/types/rekord/v0.0.1"
+	"github.com/sigstore/sigstore/pkg/cryptoutils"
 	"github.com/sigstore/sigstore/pkg/signature"
 	"github.com/sigstore/sigstore/pkg/signature/payload"
 )
@@ -173,62 +177,120 @@ func VerifyBlob(msgBytes, sigBytes, certBytes, bundleBytes []byte, pubkeyPath *s
 		rawCert = k8smnfutil.GzipDecompress(gzipCert)
 	}
 
-	// if bundle is provided, try verifying it in offline first and return results if verified
+	var rawBundle []byte
 	if bundleBytes != nil {
 		gzipBundle, _ := base64.StdEncoding.DecodeString(string(bundleBytes))
-		rawBundle := k8smnfutil.GzipDecompress(gzipBundle)
-		b64Bundle := base64.StdEncoding.EncodeToString(rawBundle)
-		verified, signerName, signedTimestamp, err := verifyBundle(rawMsg, b64Sig, rawCert, []byte(b64Bundle))
-		log.Debugf("verifyBundle() results: verified: %v, signerName: %s, err: %s", verified, signerName, err)
-		if verified {
-			log.Debug("Verified by bundle information")
-			return verified, signerName, signedTimestamp, err
+		rawBundle = k8smnfutil.GzipDecompress(gzipBundle)
+	}
+
+	// if bundle is provided, try verifying it in offline first and return results if verified
+	// if bundleBytes != nil {
+	// 	gzipBundle, _ := base64.StdEncoding.DecodeString(string(bundleBytes))
+	// 	rawBundle := k8smnfutil.GzipDecompress(gzipBundle)
+	// 	b64Bundle := base64.StdEncoding.EncodeToString(rawBundle)
+	// 	verified, signerName, signedTimestamp, err := verifyBundle(rawMsg, b64Sig, rawCert, []byte(b64Bundle))
+	// 	log.Debugf("verifyBundle() results: verified: %v, signerName: %s, err: %s", verified, signerName, err)
+	// 	if verified {
+	// 		log.Debug("Verified by bundle information")
+	// 		return verified, signerName, signedTimestamp, err
+	// 	}
+	// }
+	// otherwise, use cosign.VerifyBlobSignature() for verification
+
+	keyRef := ""
+	if pubkeyPath != nil {
+		keyRef = *(pubkeyPath)
+	}
+
+	co := &cosign.CheckOpts{}
+	var err error
+	if cliopt.EnableExperimental() {
+		if rekorURL != "" {
+			rekorClient, err := rekor.NewClient(rekorURL)
+			if err != nil {
+				return false, "", nil, fmt.Errorf("creating Rekor client: %w", err)
+			}
+			co.RekorClient = rekorClient
+		}
+		co.RootCerts, err = fulcio.GetRoots()
+		if err != nil {
+			return false, "", nil, fmt.Errorf("getting Fulcio roots: %w", err)
+		}
+		co.IntermediateCerts, err = fulcio.GetIntermediates()
+		if err != nil {
+			return false, "", nil, fmt.Errorf("getting Fulcio intermediates: %w", err)
+		}
+		co.CertOidcIssuer = oidcIssuer
+	}
+
+	var pubKey signature.Verifier
+	var cert *x509.Certificate
+	var chain []*x509.Certificate
+	switch {
+	case keyRef != "":
+		pubKey, err = sigs.PublicKeyFromKeyRefWithHashAlgo(context.Background(), keyRef, crypto.SHA256)
+		if err != nil {
+			return false, "", nil, fmt.Errorf("loading public key: %w", err)
+		}
+		pkcs11Key, ok := pubKey.(*pkcs11key.Key)
+		if ok {
+			defer pkcs11Key.Close()
+		}
+	case rawBundle != nil:
+		cert, err = loadCertificateFromBundle(rawBundle)
+		if err != nil {
+			// check if cert is actually a public key
+			pubKey, err = sigs.LoadPublicKeyRaw(certBytes, crypto.SHA256)
+		} else {
+			pubKey, err = signature.LoadVerifier(cert.PublicKey, crypto.SHA256)
+		}
+		if err != nil {
+			return false, "", nil, errors.Wrap(err, "failed to get verifier from bundle")
+		}
+	case certRef != "":
+		cert, err = loadCertFromFileOrURL(certRef)
+		if err != nil {
+			return false, "", nil, errors.Wrap(err, "failed to load cert from certRef")
+		}
+		if certChain == "" {
+			// If no certChain is passed, the Fulcio root certificate will be used
+			co.RootCerts, err = fulcio.GetRoots()
+			if err != nil {
+				return false, "", nil, fmt.Errorf("getting Fulcio roots: %w", err)
+			}
+			co.IntermediateCerts, err = fulcio.GetIntermediates()
+			if err != nil {
+				return false, "", nil, fmt.Errorf("getting Fulcio intermediates: %w", err)
+			}
+			pubKey, err = cosign.ValidateAndUnpackCert(cert, co)
+			if err != nil {
+				return false, "", nil, errors.Wrap(err, "failed to unpack verifier from cert")
+			}
+		} else {
+			// Verify certificate with chain
+			chain, err = loadCertChainFromFileOrURL(certChain)
+			if err != nil {
+				return false, "", nil, errors.Wrap(err, "failed to load cert chain")
+			}
+			pubKey, err = cosign.ValidateAndUnpackCertWithChain(cert, chain, co)
+			if err != nil {
+				return false, "", nil, errors.Wrap(err, "failed to unpack verifier from cert and chain")
+			}
 		}
 	}
-	// otherwise, use cosign.VerifyBundleCmd for verification
-
-	// TODO: add support for sk (security key) and idToken (identity token for cert from fulcio)
-	sk := false
-	idToken := ""
-
-	var rekorSeverURL string
-	if rekorURL == "" {
-		rekorSeverURL = GetRekorServerURL()
-	} else {
-		rekorSeverURL = rekorURL
-	}
-	fulcioServerURL := fulcioapi.SigstorePublicServerURL
-
-	opt := cliopt.KeyOpts{
-		Sk:        sk,
-		IDToken:   idToken,
-		RekorURL:  rekorSeverURL,
-		FulcioURL: fulcioServerURL,
+	co.SigVerifier = pubKey
+	var bundle *bundle.RekorBundle
+	if rawBundle != nil {
+		bundle, err = loadBundle(rawBundle)
+		if err != nil {
+			return false, "", nil, errors.Wrap(err, "failed to load bundle")
+		}
 	}
 
-	if pubkeyPath != nil {
-		opt.KeyRef = *pubkeyPath
-	}
-
-	stdinReader, stdinWriter, err := os.Pipe()
-	if err != nil {
-		return false, "", nil, errors.Wrap(err, "failed to create a virtual standard input")
-	}
-	origStdin := os.Stdin
-	os.Stdin = stdinReader
-	_, err = stdinWriter.Write(rawMsg)
-	if err != nil {
-		return false, "", nil, errors.Wrap(err, "failed to write a message data to virtual standard input")
-	}
-	_ = stdinWriter.Close()
-	err = cliverify.VerifyBlobCmd(context.Background(), opt, certRef, "", oidcIssuer, certChain, string(b64Sig), "-", "", "", "", "", "", false)
+	_, verified, err := cosign.VerifyBlobSignature(context.Background(), rawMsg, cert, chain, string(b64Sig), bundle, co)
+	// err = cliverify.VerifyBlobCmd(context.Background(), opt, certRef, "", oidcIssuer, certChain, string(b64Sig), "-", "", "", "", "", "", false)
 	if err != nil {
 		return false, "", nil, errors.Wrap(err, "cosign.VerifyBlobCmd() returned an error")
-	}
-	os.Stdin = origStdin
-	verified := false
-	if err == nil {
-		verified = true
 	}
 
 	var signerName string
@@ -353,4 +415,109 @@ func (s *cosignBundleSignature) Bundle() (*bundle.RekorBundle, error) {
 		return nil, errors.Wrap(err, "failed to Unamrshal() bundle")
 	}
 	return b, nil
+}
+
+func loadBundle(bundleBytes []byte) (*bundle.RekorBundle, error) {
+	var b *bundle.RekorBundle
+	err := json.Unmarshal(bundleBytes, &b)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to Unamrshal() bundle")
+	}
+	return b, nil
+}
+
+func loadCertificateFromBundle(bundleBytes []byte) (*x509.Certificate, error) {
+	b, err := loadBundle(bundleBytes)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to load bundle")
+	}
+	rekorPayload := b.Payload
+	b64EntryStr, ok := rekorPayload.Body.(string)
+	if !ok {
+		return nil, fmt.Errorf("failed to load rekorPayload.Body in bundle as []byte: it is %T", rekorPayload.Body)
+	}
+	entryBytes, err := base64.StdEncoding.DecodeString(b64EntryStr)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to base64 decode the entry in bundle")
+	}
+	proposedEntry, err := rekormodels.UnmarshalProposedEntry(bytes.NewReader(entryBytes), runtime.JSONConsumer())
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to unmarshal proposed entry in bundle")
+	}
+
+	eimpl, err := rekortypes.NewEntry(proposedEntry)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get new entry from proposed entry")
+	}
+
+	var publicKeyB64 []byte
+	switch e := eimpl.(type) {
+	case *rekord.V001Entry:
+		publicKeyB64, err = e.RekordObj.Signature.PublicKey.Content.MarshalText()
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to marshal cert data in rekord entry")
+		}
+	case *hashedrekord.V001Entry:
+		publicKeyB64, err = e.HashedRekordObj.Signature.PublicKey.Content.MarshalText()
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to marshal cert data in hashedrekord entry")
+		}
+	default:
+		return nil, errors.New("unexpected tlog entry type")
+	}
+
+	publicKey, err := base64.StdEncoding.DecodeString(string(publicKeyB64))
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to base64 decode cert data in proposed entry")
+	}
+
+	certs, err := cryptoutils.UnmarshalCertificatesFromPEM(publicKey)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to unmarshal cert data in proposed entry")
+	}
+
+	if len(certs) == 0 {
+		return nil, errors.New("no certs found in pem tlog")
+	}
+	cert := certs[0]
+
+	return cert, nil
+}
+
+func loadCertFromFileOrURL(path string) (*x509.Certificate, error) {
+	pems, err := blob.LoadFileOrURL(path)
+	if err != nil {
+		return nil, err
+	}
+	return loadCertFromPEM(pems)
+}
+
+func loadCertFromPEM(pems []byte) (*x509.Certificate, error) {
+	var out []byte
+	out, err := base64.StdEncoding.DecodeString(string(pems))
+	if err != nil {
+		// not a base64
+		out = pems
+	}
+
+	certs, err := cryptoutils.UnmarshalCertificatesFromPEM(out)
+	if err != nil {
+		return nil, err
+	}
+	if len(certs) == 0 {
+		return nil, errors.New("no certs found in pem file")
+	}
+	return certs[0], nil
+}
+
+func loadCertChainFromFileOrURL(path string) ([]*x509.Certificate, error) {
+	pems, err := blob.LoadFileOrURL(path)
+	if err != nil {
+		return nil, err
+	}
+	certs, err := cryptoutils.LoadCertificatesFromPEM(bytes.NewReader(pems))
+	if err != nil {
+		return nil, err
+	}
+	return certs, nil
 }
