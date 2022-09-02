@@ -34,7 +34,6 @@ import (
 	"github.com/sigstore/cosign/cmd/cosign/cli/fulcio"
 	cliopt "github.com/sigstore/cosign/cmd/cosign/cli/options"
 	"github.com/sigstore/cosign/cmd/cosign/cli/rekor"
-	"github.com/sigstore/cosign/pkg/blob"
 	"github.com/sigstore/cosign/pkg/cosign"
 	"github.com/sigstore/cosign/pkg/cosign/bundle"
 	"github.com/sigstore/cosign/pkg/cosign/pkcs11key"
@@ -248,7 +247,7 @@ func VerifyBlob(msgBytes, sigBytes, certBytes, bundleBytes []byte, pubkeyPath *s
 			return false, "", nil, errors.Wrap(err, "failed to get verifier from bundle")
 		}
 	case certRef != "":
-		cert, err = loadCertFromFileOrURL(certRef)
+		cert, err = k8ssigx509.LoadCertificate(certRef)
 		if err != nil {
 			return false, "", nil, errors.Wrap(err, "failed to load cert from certRef")
 		}
@@ -268,7 +267,7 @@ func VerifyBlob(msgBytes, sigBytes, certBytes, bundleBytes []byte, pubkeyPath *s
 			}
 		} else {
 			// Verify certificate with chain
-			chain, err = loadCertChainFromFileOrURL(certChain)
+			chain, err = k8ssigx509.LoadCertificateChain(certChain)
 			if err != nil {
 				return false, "", nil, errors.Wrap(err, "failed to load cert chain")
 			}
@@ -482,42 +481,4 @@ func loadCertificateFromBundle(bundleBytes []byte) (*x509.Certificate, error) {
 	cert := certs[0]
 
 	return cert, nil
-}
-
-func loadCertFromFileOrURL(path string) (*x509.Certificate, error) {
-	pems, err := blob.LoadFileOrURL(path)
-	if err != nil {
-		return nil, err
-	}
-	return loadCertFromPEM(pems)
-}
-
-func loadCertFromPEM(pems []byte) (*x509.Certificate, error) {
-	var out []byte
-	out, err := base64.StdEncoding.DecodeString(string(pems))
-	if err != nil {
-		// not a base64
-		out = pems
-	}
-
-	certs, err := cryptoutils.UnmarshalCertificatesFromPEM(out)
-	if err != nil {
-		return nil, err
-	}
-	if len(certs) == 0 {
-		return nil, errors.New("no certs found in pem file")
-	}
-	return certs[0], nil
-}
-
-func loadCertChainFromFileOrURL(path string) ([]*x509.Certificate, error) {
-	pems, err := blob.LoadFileOrURL(path)
-	if err != nil {
-		return nil, err
-	}
-	certs, err := cryptoutils.LoadCertificatesFromPEM(bytes.NewReader(pems))
-	if err != nil {
-		return nil, err
-	}
-	return certs, nil
 }

@@ -103,16 +103,20 @@ func VerifyBlob(msgBytes, sigBytes, certBytes []byte, caCertPathString *string) 
 	return true, signerName, nil, nil
 }
 
-// Load certificate at `certPath`
-// Specifying a cert secret with `k8s://` prefix is supported.
-func LoadCertificate(certPath string) (*x509.Certificate, error) {
+// Load certificate at `certRef`
+// the following patterns are supported.
+// filepath --> load the cert file
+// PEMbytes --> read cert PEM
+// k8s secret --> load cert PEM in the k8s secret (certRef must start with `k8s://`)
+// env var --> load cert PEM in the env var (certRef must start with `env://`)
+func LoadCertificate(certRef string) (*x509.Certificate, error) {
 	var certPemBytes []byte
 	var err error
 
-	if strings.HasPrefix(certPath, kubeutil.InClusterObjectPrefix) {
-		ns, name, err := kubeutil.ParseObjectRefInCluster(certPath)
+	if strings.HasPrefix(certRef, kubeutil.InClusterObjectPrefix) {
+		ns, name, err := kubeutil.ParseObjectRefInCluster(certRef)
 		if err != nil {
-			return nil, errors.Wrap(err, fmt.Sprintf("failed to parse secret keyRef `%s`", certPath))
+			return nil, errors.Wrap(err, fmt.Sprintf("failed to parse secret keyRef `%s`", certRef))
 		}
 		secret, err := kubeutil.GetSecret(ns, name)
 		if err != nil {
@@ -123,17 +127,21 @@ func LoadCertificate(certPath string) (*x509.Certificate, error) {
 				certPemBytes = val
 			}
 		}
-	} else if strings.HasPrefix(certPath, k8smnfutil.EnvVarFileRefPrefix) {
-		tmpCertBytes, err := k8smnfutil.LoadFileDataInEnvVar(certPath)
+	} else if strings.HasPrefix(certRef, k8smnfutil.EnvVarFileRefPrefix) {
+		tmpCertBytes, err := k8smnfutil.LoadFileDataInEnvVar(certRef)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to load the key in env var")
 		}
 		certPemBytes = tmpCertBytes
 	} else {
-		cpath := filepath.Clean(certPath)
-		certPemBytes, err = os.ReadFile(cpath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read a cert file; %s", err.Error())
+		if fileExists(certRef) {
+			cpath := filepath.Clean(certRef)
+			certPemBytes, err = os.ReadFile(cpath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read a cert file; %s", err.Error())
+			}
+		} else {
+			certPemBytes = []byte(certRef)
 		}
 	}
 	if certPemBytes == nil {
@@ -148,16 +156,16 @@ func LoadCertificate(certPath string) (*x509.Certificate, error) {
 	return cert, nil
 }
 
-// Load certificate chain at `certChainPath`
-// Specifying a cert secret with `k8s://` prefix is supported.
-func LoadCertificateChain(certChainPath string) ([]*x509.Certificate, error) {
+// Load certificate chain at `certChainRef`
+// the same patterns are supported as LoadCertificate()
+func LoadCertificateChain(certChainRef string) ([]*x509.Certificate, error) {
 	var certPemBytes []byte
 	var err error
 
-	if strings.HasPrefix(certChainPath, kubeutil.InClusterObjectPrefix) {
-		ns, name, err := kubeutil.ParseObjectRefInCluster(certChainPath)
+	if strings.HasPrefix(certChainRef, kubeutil.InClusterObjectPrefix) {
+		ns, name, err := kubeutil.ParseObjectRefInCluster(certChainRef)
 		if err != nil {
-			return nil, errors.Wrap(err, fmt.Sprintf("failed to parse secret keyRef `%s`", certChainPath))
+			return nil, errors.Wrap(err, fmt.Sprintf("failed to parse secret keyRef `%s`", certChainRef))
 		}
 		secret, err := kubeutil.GetSecret(ns, name)
 		if err != nil {
@@ -168,17 +176,21 @@ func LoadCertificateChain(certChainPath string) ([]*x509.Certificate, error) {
 				certPemBytes = val
 			}
 		}
-	} else if strings.HasPrefix(certChainPath, k8smnfutil.EnvVarFileRefPrefix) {
-		tmpCertBytes, err := k8smnfutil.LoadFileDataInEnvVar(certChainPath)
+	} else if strings.HasPrefix(certChainRef, k8smnfutil.EnvVarFileRefPrefix) {
+		tmpCertBytes, err := k8smnfutil.LoadFileDataInEnvVar(certChainRef)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to load the key in env var")
 		}
 		certPemBytes = tmpCertBytes
 	} else {
-		cpath := filepath.Clean(certChainPath)
-		certPemBytes, err = os.ReadFile(cpath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read a cert file; %s", err.Error())
+		if fileExists(certChainRef) {
+			cpath := filepath.Clean(certChainRef)
+			certPemBytes, err = os.ReadFile(cpath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read a cert file; %s", err.Error())
+			}
+		} else {
+			certPemBytes = []byte(certChainRef)
 		}
 	}
 	if certPemBytes == nil {
@@ -253,4 +265,13 @@ func GetNameInfoFromX509Cert(cert *x509.Certificate) string {
 // whether the certificate is self signed or not
 func isSelfSignedCert(cert *x509.Certificate) bool {
 	return bytes.Equal(cert.RawSubject, cert.RawIssuer)
+}
+
+// whether file exists or not
+func fileExists(filepath string) bool {
+	info, err := os.Stat(filepath)
+	if os.IsNotExist(err) {
+		return false
+	}
+	return !info.IsDir()
 }
