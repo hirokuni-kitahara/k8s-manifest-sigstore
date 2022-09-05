@@ -134,7 +134,7 @@ func LoadCertificate(certRef string) (*x509.Certificate, error) {
 		}
 		certPemBytes = tmpCertBytes
 	} else {
-		if k8smnfutil.FileExists(certRef) {
+		if ok, _ := k8smnfutil.FileExists(certRef); ok {
 			cpath := filepath.Clean(certRef)
 			certPemBytes, err = os.ReadFile(cpath)
 			if err != nil {
@@ -187,7 +187,7 @@ func LoadCertificateChain(certChainRef string) ([]*x509.Certificate, error) {
 		}
 		certPemBytes = tmpCertBytes
 	} else {
-		if k8smnfutil.FileExists(certChainRef) {
+		if ok, _ := k8smnfutil.FileExists(certChainRef); ok {
 			cpath := filepath.Clean(certChainRef)
 			certPemBytes, err = os.ReadFile(cpath)
 			if err != nil {

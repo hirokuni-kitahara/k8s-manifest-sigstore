@@ -369,10 +369,19 @@ func IsB64(str string) bool {
 }
 
 // whether file exists or not
-func FileExists(filepath string) bool {
+func FileExists(filepath string) (bool, error) {
 	info, err := os.Stat(filepath)
-	if os.IsNotExist(err) {
-		return false
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
 	}
-	return !info.IsDir()
+	if info == nil {
+		return false, nil
+	}
+	if info.IsDir() {
+		return false, nil
+	}
+	return true, nil
 }

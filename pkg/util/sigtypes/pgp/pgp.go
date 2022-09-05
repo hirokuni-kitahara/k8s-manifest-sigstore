@@ -136,7 +136,7 @@ func getPublicKeyStream(keyRef string) (io.Reader, error) {
 		}
 		keyRingReader = bytes.NewBuffer(keyBytes)
 	} else {
-		if k8smnfutil.FileExists(keyRef) {
+		if ok, _ := k8smnfutil.FileExists(keyRef); ok {
 			kpath := filepath.Clean(keyRef)
 			keyRingReader, err = os.Open(kpath)
 			if err != nil {
