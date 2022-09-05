@@ -272,7 +272,7 @@ func VerifyBlob(msgBytes, sigBytes, certBytes, bundleBytes []byte, pubkeyPath *s
 		}
 	}
 
-	_, verified, err := cosign.VerifyBlobSignature(context.Background(), rawMsg, cert, chain, string(b64Sig), bundle, co)
+	_, verified, err := cosign.VerifyBlobSignature(context.Background(), rawMsg, string(b64Sig), bundle, co)
 	// err = cliverify.VerifyBlobCmd(context.Background(), opt, certRef, "", oidcIssuer, certChain, string(b64Sig), "-", "", "", "", "", "", false)
 	if err != nil {
 		return false, "", nil, errors.Wrap(err, "cosign.VerifyBlobCmd() returned an error")
