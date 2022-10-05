@@ -210,7 +210,7 @@ func verifyResource(yamls [][]byte, kubeGetArgs []string, resBundleRef, sigResRe
 	vo.SetAnnotationIgnoreFields()
 
 	if outputFormat == "" {
-		log.Info("identifying target resources.")
+		log.Debug("identifying target resources.")
 	}
 	objs := []unstructured.Unstructured{}
 	if configType == configTypeConstraint {
@@ -257,7 +257,7 @@ func verifyResource(yamls [][]byte, kubeGetArgs []string, resBundleRef, sigResRe
 	imagesToBeused := getAllImagesToBeUsed(vo.ResourceBundleRef, objs, vo.AnnotationConfig, vo.Provenance)
 
 	if outputFormat == "" {
-		log.Info("loading some required data.")
+		log.Debug("loading some required data.")
 	}
 	// register functions to connect remote registry or server
 	prepareFuncs := []reflect.Value{}
@@ -323,7 +323,7 @@ func verifyResource(yamls [][]byte, kubeGetArgs []string, resBundleRef, sigResRe
 	}
 
 	if outputFormat == "" {
-		log.Info("verifying the resources.")
+		log.Debug("verifying the resources.")
 	}
 	// execute verify-resource by using prepared cache
 	preVerifyResource := time.Now().UTC()
@@ -375,7 +375,7 @@ func verifyResource(yamls [][]byte, kubeGetArgs []string, resBundleRef, sigResRe
 	finish := time.Now().UTC()
 
 	if outputFormat == "" {
-		log.Infof("Total elapsed time: %vs (initialize: %vs, verify: %vs, print: %vs)", finish.Sub(start).Seconds(), preVerifyResource.Sub(start).Seconds(), postVerifyResource.Sub(preVerifyResource).Seconds(), finish.Sub(postVerifyResource).Seconds())
+		log.Debugf("Total elapsed time: %vs (initialize: %vs, verify: %vs, print: %vs)", finish.Sub(start).Seconds(), preVerifyResource.Sub(start).Seconds(), postVerifyResource.Sub(preVerifyResource).Seconds(), finish.Sub(postVerifyResource).Seconds())
 	}
 	return allVerified, nil
 }
@@ -704,117 +704,21 @@ func makeResultTable(result VerifyResourceResult, provenanceEnabled bool) []byte
 	if result.Summary.Total == 0 {
 		return []byte("No resources found")
 	}
-	summaryTable := makeSummaryResultTable(result)
-	sigRefFound := len(result.Manifests) > 0
-	var manifestTable []byte
-	if sigRefFound {
-		manifestTable = makeManifestResultTable(result, provenanceEnabled)
-	}
 	resourceTable := makeResourceResultTable(result, provenanceEnabled)
-
-	var provenanceTable []byte
-	if provenanceEnabled {
-		provenanceTable = makeProvenanceResultTable(result)
-	}
-
-	var resultTable string
-	if sigRefFound {
-		resultTable = fmt.Sprintf("[SUMMARY]\n%s\n[MANIFESTS]\n%s\n[RESOURCES]\n%s", string(summaryTable), string(manifestTable), string(resourceTable))
-	} else {
-		resultTable = fmt.Sprintf("[SUMMARY]\n%s\n[RESOURCES]\n%s", string(summaryTable), string(resourceTable))
-	}
-	if provenanceEnabled {
-		resultTable = fmt.Sprintf("%s\n%s", resultTable, string(provenanceTable))
-	}
-	return []byte(resultTable)
-}
-
-// generate summary of result table which will be shown in output
-func makeSummaryResultTable(result VerifyResourceResult) []byte {
-	var tableResult string
-	tableResult = "TOTAL\tVALID\tINVALID\t\n"
-	tableResult += fmt.Sprintf("%v\t%v\t%v\t\n", result.Summary.Total, result.Summary.Valid, result.Summary.Invalid)
-	writer := new(bytes.Buffer)
-	w := tabwriter.NewWriter(writer, 0, 3, 3, ' ', 0)
-	_, _ = w.Write([]byte(tableResult))
-	w.Flush()
-	tableBytes := writer.Bytes()
-	return tableBytes
-}
-
-// generate manifest result table which will be shown in output
-func makeManifestResultTable(result VerifyResourceResult, provenanceEnabled bool) []byte {
-	var tableResult string
-	if provenanceEnabled {
-		tableResult = "NAME\tSIGNED\tSIGNER\tATTESTATION\tSBOM\t\n"
-	} else {
-		tableResult = "NAME\tSIGNED\tSIGNER\t\n"
-	}
-	for i := range result.Manifests {
-		manifestResult := result.Manifests[i]
-		// sigAge := ""
-		// if manifestResult.SignedTime != nil {
-		// 	t := manifestResult.SignedTime
-		// 	sigAge = getAge(metav1.Time{Time: *t})
-		// }
-
-		// currently manifest table is showing only signed manifest, so `signed` is always true
-		// TODO: update this to show all related manifests even if the one is not signed
-		signed := true
-		signedStr := strconv.FormatBool(signed)
-
-		signer := ""
-		if signed {
-			if manifestResult.Signer == "" {
-				signer = "N/A"
-			} else {
-				signer = manifestResult.Signer
-			}
-		}
-
-		if provenanceEnabled {
-			attestationFoundStr := "-"
-			sbomFoundStr := "-"
-			for _, prov := range result.Provenance.Items {
-				isProvForManifestImage := (prov.ArtifactType == k8smanifest.ArtifactManifestImage)
-				isProvForManifestResource := (prov.ArtifactType == k8smanifest.ArtifactManifestResource)
-				if !isProvForManifestImage && !isProvForManifestResource {
-					continue
-				}
-				if prov.RawAttestation != "" {
-					attestationFoundStr = "found"
-				}
-				if prov.SBOMRef != "" {
-					sbomFoundStr = "found"
-				}
-				break
-			}
-			tableResult += fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t\n", manifestResult.Name, signedStr, signer, attestationFoundStr, sbomFoundStr)
-		} else {
-			tableResult += fmt.Sprintf("%s\t%s\t%s\t\n", manifestResult.Name, signedStr, signer)
-		}
-
-	}
-	writer := new(bytes.Buffer)
-	w := tabwriter.NewWriter(writer, 0, 3, 3, ' ', 0)
-	_, _ = w.Write([]byte(tableResult))
-	w.Flush()
-	tableBytes := writer.Bytes()
-	return tableBytes
+	return []byte(resourceTable)
 }
 
 // generate resource result table which will be shown in output
 func makeResourceResultTable(result VerifyResourceResult, provenanceEnabled bool) []byte {
-	mutipleManifestsFound := len(result.Manifests) >= 2
+	manifestFound := len(result.Manifests) >= 1
 
 	var resourceTableResult string
-	if mutipleManifestsFound {
-		resourceTableResult = "KIND\tNAME\tVALID\tSIG_REF\tERROR\tAGE\t\n"
+	if manifestFound {
+		resourceTableResult = "NAME\tSIGNED\tMANIFEST IMAGE\tAGE\t\n"
 	} else {
-		resourceTableResult = "KIND\tNAME\tVALID\tERROR\tAGE\t\n"
+		resourceTableResult = "NAME\tSIGNED\tAGE\t\n"
 	}
 
-	containerImages := []kubeutil.ImageObject{}
 	for _, r := range result.Resources {
 		// if it is out of scope (=skipped by config), skip to show it too
 		inscope := true
@@ -828,16 +732,17 @@ func makeResourceResultTable(result VerifyResourceResult, provenanceEnabled bool
 		// object
 		obj := r.Object
 		resName := obj.GetName()
-		resKind := obj.GetKind()
 		resTime := obj.GetCreationTimestamp()
 		resAge := getAge(resTime)
 		// verify result
-		valid := "false"
+		signed := "false"
 
-		sigRef := ""
+		sigRef := "-"
 		if r.Result != nil {
-			valid = strconv.FormatBool(r.Result.Verified)
-			sigRef = r.Result.SigRef
+			signed = strconv.FormatBool(r.Result.Verified)
+			if r.Result.Verified {
+				sigRef = r.Result.SigRef
+			}
 		}
 		// failure reason
 		reason := ""
@@ -849,160 +754,18 @@ func makeResourceResultTable(result VerifyResourceResult, provenanceEnabled bool
 		}
 		// make a row string
 		var line string
-		if mutipleManifestsFound {
-			line = fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s\t\n", resKind, resName, valid, sigRef, reason, resAge)
+		if manifestFound {
+			line = fmt.Sprintf("%s\t%s\t%s\t%s\t\n", resName, signed, sigRef, resAge)
 		} else {
-			line = fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t\n", resKind, resName, valid, reason, resAge)
+			line = fmt.Sprintf("%s\t%s\t%s\t\n", resName, signed, resAge)
 		}
 		resourceTableResult = fmt.Sprintf("%s%s", resourceTableResult, line)
-
-		if r.Result != nil {
-			containerImages = append(containerImages, r.Result.ContainerImages...)
-		}
 	}
 	writer := new(bytes.Buffer)
 	w := tabwriter.NewWriter(writer, 0, 3, 3, ' ', 0)
 	_, _ = w.Write([]byte(resourceTableResult))
 	w.Flush()
 	tableBytes := writer.Bytes()
-
-	if len(containerImages) > 0 {
-		var podTableResult string
-		if provenanceEnabled {
-			podTableResult = "POD\tCONTAINER\tIMAGE ID\tATTESTATION\tSBOM\t\n"
-		} else {
-			podTableResult = "POD\tCONTAINER\tIMAGE ID\t\n"
-		}
-
-		for _, ci := range containerImages {
-			var line string
-			if provenanceEnabled {
-				attestationFoundStr := "-"
-				sbomFoundStr := "-"
-				for _, prov := range result.Provenance.Items {
-					if prov.Artifact != ci.ResourceBundleRef {
-						continue
-					}
-					if prov.RawAttestation != "" {
-						attestationFoundStr = "found"
-					}
-					if prov.SBOMRef != "" {
-						sbomFoundStr = "found"
-					}
-					break
-				}
-				line = fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t\n", ci.PodName, ci.ContainerName, ci.ImageID, attestationFoundStr, sbomFoundStr)
-			} else {
-				line = fmt.Sprintf("%s\t%s\t%s\t\n", ci.PodName, ci.ContainerName, ci.ImageID)
-			}
-			podTableResult = fmt.Sprintf("%s%s", podTableResult, line)
-		}
-		writer2 := new(bytes.Buffer)
-		w2 := tabwriter.NewWriter(writer2, 0, 3, 3, ' ', 0)
-		_, _ = w2.Write([]byte(podTableResult))
-		w2.Flush()
-		podTableBytes := writer2.Bytes()
-		tmpTableStr := fmt.Sprintf("%s\n[RESOURCES - PODS/CONTAINERS]\n%s", string(tableBytes), string(podTableBytes))
-		tableBytes = []byte(tmpTableStr)
-	}
-
-	return tableBytes
-}
-
-// generate provenance result table which will be shown in output
-func makeProvenanceResultTable(result VerifyResourceResult) []byte {
-	provResult := result.Provenance
-	// provTableResult := "ARTIFACT\tTYPE\tATTESTATION FOUND\tSBOM FOUND\t\n"
-	attestationExists := false
-	sbomExists := false
-	for _, p := range provResult.Items {
-		// artifact := p.Artifact
-		// aType := p.ArtifactType
-		// atteFound := strconv.FormatBool(p.Attestation != "")
-		if p.RawAttestation != "" {
-			attestationExists = true
-		}
-		// sbomFound := strconv.FormatBool(p.SBOM != "")
-		if p.SBOMRef != "" {
-			sbomExists = true
-		}
-		// line := fmt.Sprintf("%s\t%s\t%s\t%s\t\n", artifact, aType, atteFound, sbomFound)
-		// provTableResult = fmt.Sprintf("%s%s", provTableResult, line)
-	}
-	// writer1 := new(bytes.Buffer)
-	// w1 := tabwriter.NewWriter(writer1, 0, 3, 3, ' ', 0)
-	// _, _ = w1.Write([]byte(provTableResult))
-	// w1.Flush()
-	// tableBytes := writer1.Bytes()
-	tableBytes := []byte{}
-
-	if attestationExists {
-		attestationTableResult := ""
-		for _, p := range provResult.Items {
-			if p.RawAttestation == "" {
-				continue
-			}
-			attestationSingleTableResult := ""
-			artifact := p.Artifact
-			line1 := fmt.Sprintf("ARTIFACT\t\t%s\t\n", artifact)
-			line2 := ""
-			for i, m := range p.AttestationMaterials {
-				materialLabel := fmt.Sprintf("MATERIALS %v", i+1)
-				line2 = fmt.Sprintf("%s%s\tURI\t%s\t\n", line2, materialLabel, m.URI)
-				for k, v := range m.Digest {
-					digestLabel := strings.ToUpper(k)
-					line2 = fmt.Sprintf("%s\t%s\t%s\t\n", line2, digestLabel, v)
-				}
-			}
-
-			attestationSingleTableResult = fmt.Sprintf("%s%s%s", attestationSingleTableResult, line1, line2)
-			writer2 := new(bytes.Buffer)
-			w2 := tabwriter.NewWriter(writer2, 0, 3, 3, ' ', 0)
-			_, _ = w2.Write([]byte(attestationSingleTableResult))
-			w2.Flush()
-			singleAttestationTableStr := writer2.String()
-			if p.AttestationLogIndex != nil {
-				attestationLogIndex := *(p.AttestationLogIndex)
-				curlCmd := k8smanifest.GenerateIntotoAttestationCurlCommand(attestationLogIndex)
-				singleAttestationTableStr = fmt.Sprintf("%sTo get this attestation: %s\n\n", singleAttestationTableStr, curlCmd)
-			} else if p.ConfigMapRef != "" {
-				curlCmd := k8smanifest.GenerateIntotoAttestationKubectlCommand(p.ConfigMapRef)
-				singleAttestationTableStr = fmt.Sprintf("%sTo get this attestation: %s\n\n", singleAttestationTableStr, curlCmd)
-			}
-			attestationTableResult = fmt.Sprintf("%s%s", attestationTableResult, singleAttestationTableStr)
-
-		}
-		tmpTableStr := fmt.Sprintf("[PROVENANCES - ATTESTATIONS]\n%s", attestationTableResult)
-		tableBytes = []byte(tmpTableStr)
-	}
-
-	if sbomExists {
-		sbomTableResult := ""
-		for _, p := range provResult.Items {
-			if p.SBOMRef == "" {
-				continue
-			}
-			artifact := p.Artifact
-			line1 := fmt.Sprintf("ARTIFACT\t%s\t\n", artifact)
-			line2 := fmt.Sprintf("SBOM NAME\t%s\t\n", p.SBOMRef)
-			tmpSBOMTableStr := fmt.Sprintf("%s%s", line1, line2)
-			writer3 := new(bytes.Buffer)
-			w3 := tabwriter.NewWriter(writer3, 0, 3, 3, ' ', 0)
-			_, _ = w3.Write([]byte(tmpSBOMTableStr))
-			w3.Flush()
-			tmpTableStr := writer3.String()
-			if p.SBOMRef != "" {
-				sbomCmd := k8smanifest.GenerateSBOMDownloadCommand(artifact)
-				tmpTableStr = fmt.Sprintf("%sTo download SBOM: %s\n\n", tmpTableStr, sbomCmd)
-			} else if p.ConfigMapRef != "" {
-				sbomCmd := k8smanifest.GenerateSBOMDownloadCommand(p.ConfigMapRef)
-				tmpTableStr = fmt.Sprintf("%sTo download SBOM: %s\n\n", tmpTableStr, sbomCmd)
-			}
-			sbomTableResult = fmt.Sprintf("%s%s", sbomTableResult, tmpTableStr)
-		}
-		tmpTableStr := fmt.Sprintf("%s\n[PROVENANCES - SBOMs]\n%s", string(tableBytes), sbomTableResult)
-		tableBytes = []byte(tmpTableStr)
-	}
 
 	return tableBytes
 }
