@@ -546,3 +546,7 @@ func AddDefaultConfig(vo *VerifyResourceOption) *VerifyResourceOption {
 	dvo := LoadDefaultConfig()
 	return vo.AddDefaultConfig(dvo)
 }
+
+func init() {
+	log.SetLevel(log.DebugLevel)
+}
