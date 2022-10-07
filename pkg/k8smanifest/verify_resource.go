@@ -239,6 +239,8 @@ func matchResourceWithManifest(obj unstructured.Unstructured, foundManifestBytes
 		if err != nil {
 			return false, nil, errors.Wrap(err, "error occured during dryrun create match")
 		}
+		dryRunYAMLBytes, _ := yaml.JSONToYAML(dryRunBytes)
+		log.Debugf("[DEBUG] dryrun.yaml: %s", string(dryRunYAMLBytes))
 		if diff != nil && len(ignoreFields) > 0 {
 			_, diff, _ = diff.Filter(ignoreFields)
 		}
@@ -283,7 +285,7 @@ func matchResourceWithManifest(obj unstructured.Unstructured, foundManifestBytes
 	}
 
 	// CASE4: manifest match for a resource in mutating admission controller
-	if checkMutatingResource {
+	if true {
 		log.Debug("try mutating resource matching (check inclusion relation between manifest, resource and dryrun result)")
 		matched, diff, err = inclusionMatch(foundManifestBytes, objBytes, dryRunBytes, clusterScope, isCRD, disableDryRun)
 		if err != nil {
