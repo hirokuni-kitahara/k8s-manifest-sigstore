@@ -23,7 +23,6 @@ import (
 	"crypto/x509"
 	"encoding/asn1"
 	"encoding/base64"
-	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"os"
@@ -34,6 +33,7 @@ import (
 
 	k8smnfutil "github.com/sigstore/k8s-manifest-sigstore/pkg/util"
 	"github.com/sigstore/k8s-manifest-sigstore/pkg/util/kubeutil"
+	"github.com/sigstore/sigstore/pkg/cryptoutils"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -235,20 +235,24 @@ func GetPublicKeyFromCertificate(certPemBytes []byte) ([]byte, error) {
 // try finding it in the following order
 // cert.EmailAddress > cert.Subject.Names[] > cert.Subject.CommonName
 func GetNameInfoFromX509Cert(cert *x509.Certificate) string {
-	certBytes, _ := json.Marshal(cert)
-	fmt.Printf("[DEBUG] cert: %s", string(certBytes))
 	signerName := ""
 	if len(cert.EmailAddresses) > 0 {
 		signerName = cert.EmailAddresses[0]
-	} else if len(cert.Subject.Names) > 0 {
+	}
+	if signerName == "" && len(cert.Subject.Names) > 0 {
 		for _, pkixName := range cert.Subject.Names {
 			if pkixName.Type.Equal(asn1EmailAddressObjectIdentifier) {
 				signerName = pkixName.Value.(string)
 				break
 			}
 		}
-	} else {
+	}
+	if signerName == "" && cert.Subject.CommonName != "" {
 		signerName = cert.Subject.CommonName
+	}
+	subjectAltName, _ := cryptoutils.UnmarshalOtherNameSAN(cert.Extensions)
+	if signerName == "" && subjectAltName != "" {
+		signerName = subjectAltName
 	}
 	return signerName
 }
