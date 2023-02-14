@@ -233,12 +233,16 @@ func GetPublicKeyFromCertificate(certPemBytes []byte) ([]byte, error) {
 
 // get signer name info from cert
 // try finding it in the following order
-// cert.EmailAddress > cert.Subject.Names[] > cert.Subject.CommonName
+// - cert.EmailAddress
+// - cert.Subject.Names[]
+// - cert.Subject.CommonName
+// - SubjectAlternativeName (SAN) in cert.Extensions[]
 func GetNameInfoFromX509Cert(cert *x509.Certificate) string {
 	signerName := ""
 	if len(cert.EmailAddresses) > 0 {
 		signerName = cert.EmailAddresses[0]
 	}
+	fmt.Printf("[DEBUG] signerName 0: %s", signerName)
 	if signerName == "" && len(cert.Subject.Names) > 0 {
 		for _, pkixName := range cert.Subject.Names {
 			if pkixName.Type.Equal(asn1EmailAddressObjectIdentifier) {
@@ -247,13 +251,16 @@ func GetNameInfoFromX509Cert(cert *x509.Certificate) string {
 			}
 		}
 	}
+	fmt.Printf("[DEBUG] signerName 1: %s", signerName)
 	if signerName == "" && cert.Subject.CommonName != "" {
 		signerName = cert.Subject.CommonName
 	}
-	subjectAltName, _ := cryptoutils.UnmarshalOtherNameSAN(cert.Extensions)
-	if signerName == "" && subjectAltName != "" {
+	fmt.Printf("[DEBUG] signerName 2: %s", signerName)
+	if signerName == "" && len(cert.ExtraExtensions) > 0 {
+		subjectAltName, _ := cryptoutils.UnmarshalOtherNameSAN(cert.ExtraExtensions)
 		signerName = subjectAltName
 	}
+	fmt.Printf("[DEBUG] signerName 3: %s", signerName)
 	return signerName
 }
 
