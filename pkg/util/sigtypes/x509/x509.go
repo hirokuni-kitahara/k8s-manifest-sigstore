@@ -257,7 +257,10 @@ func GetNameInfoFromX509Cert(cert *x509.Certificate) string {
 	}
 	fmt.Printf("[DEBUG] signerName 2: %s", signerName)
 	if signerName == "" && len(cert.ExtraExtensions) > 0 {
-		subjectAltName, _ := cryptoutils.UnmarshalOtherNameSAN(cert.ExtraExtensions)
+		subjectAltName, err := cryptoutils.UnmarshalOtherNameSAN(cert.ExtraExtensions)
+		if err != nil {
+			fmt.Printf("[DEBUG] err: %s", err.Error())
+		}
 		signerName = subjectAltName
 	}
 	fmt.Printf("[DEBUG] signerName 3: %s", signerName)
