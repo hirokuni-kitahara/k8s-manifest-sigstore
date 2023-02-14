@@ -45,4 +45,4 @@ $K8S_SIGSTORE_CLI sign --tarball=no -f sample-configmap.yaml
 
 
 echo "Verifying the signed yaml..."
-$K8S_SIGSTORE_CLI verify -f sample-configmap.yaml.signed --signers='https://github.com/*'
+$K8S_SIGSTORE_CLI verify -f sample-configmap.yaml.signed
