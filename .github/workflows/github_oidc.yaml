@@ -24,6 +24,7 @@ on:
       - '!LICENSE'
       - 'test/**'
     branches: [ 'main', 'release-*' ]
+  pull_request:
 
 jobs:
   build:
