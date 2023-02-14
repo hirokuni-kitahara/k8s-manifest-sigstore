@@ -24,9 +24,6 @@ on:
       - '!LICENSE'
       - 'test/**'
     branches: [ 'main', 'release-*' ]
-  schedule:
-    - cron: '0 1 * * *' # 1AM UTC
-  workflow_dispatch:
 
 jobs:
   build:
