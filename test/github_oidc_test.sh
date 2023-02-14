@@ -40,3 +40,7 @@ EOS
 
 # $K8S_SIGSTORE_CLI sign --tarball=no -a sha="$GIT_HASH" -a run_id="$GITHUB_RUN_ID" -a run_attempt="$GITHUB_RUN_ATTEMPT" --image $TEST_IMAGE sample-configmap.yaml
 $K8S_SIGSTORE_CLI sign --tarball=no sample-configmap.yaml
+
+
+echo "Verifying the signed yaml..."
+$K8S_SIGSTORE_CLI verify sample-configmap.yaml.sigend

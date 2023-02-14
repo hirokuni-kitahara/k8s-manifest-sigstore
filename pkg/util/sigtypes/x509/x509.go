@@ -23,6 +23,7 @@ import (
 	"crypto/x509"
 	"encoding/asn1"
 	"encoding/base64"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"os"
@@ -234,6 +235,8 @@ func GetPublicKeyFromCertificate(certPemBytes []byte) ([]byte, error) {
 // try finding it in the following order
 // cert.EmailAddress > cert.Subject.Names[] > cert.Subject.CommonName
 func GetNameInfoFromX509Cert(cert *x509.Certificate) string {
+	certBytes, _ := json.Marshal(cert)
+	fmt.Printf("[DEBUG] cert: %s", string(certBytes))
 	signerName := ""
 	if len(cert.EmailAddresses) > 0 {
 		signerName = cert.EmailAddresses[0]
