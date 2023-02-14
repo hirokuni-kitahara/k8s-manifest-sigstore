@@ -239,10 +239,11 @@ func GetPublicKeyFromCertificate(certPemBytes []byte) ([]byte, error) {
 // - SubjectAlternativeName (SAN) in cert.Extensions[]
 func GetNameInfoFromX509Cert(cert *x509.Certificate) string {
 	signerName := ""
+	// EmailAddress
 	if len(cert.EmailAddresses) > 0 {
 		signerName = cert.EmailAddresses[0]
 	}
-	fmt.Printf("[DEBUG] signerName 0: %s\n", signerName)
+	// Subject.Names[]
 	if signerName == "" && len(cert.Subject.Names) > 0 {
 		for _, pkixName := range cert.Subject.Names {
 			if pkixName.Type.Equal(asn1EmailAddressObjectIdentifier) {
@@ -251,33 +252,24 @@ func GetNameInfoFromX509Cert(cert *x509.Certificate) string {
 			}
 		}
 	}
-	fmt.Printf("[DEBUG] signerName 1: %s\n", signerName)
+	// Subject.CommonName
 	if signerName == "" && cert.Subject.CommonName != "" {
 		signerName = cert.Subject.CommonName
 	}
-	fmt.Printf("[DEBUG] signerName 2: %s\n", signerName)
+	// Subject Alternative Name in Extensions[]
 	if signerName == "" && len(cert.Extensions) > 0 {
 		for _, ext := range cert.Extensions {
 			if ext.Id.Equal(asn1SubjectAlternativeNameObjectIdentifier) {
-
 				var seq asn1.RawValue
-				rest, err := asn1.Unmarshal(ext.Value, &seq)
-				if err != nil {
-					fmt.Printf("[DEBUG] err: %s\n", err.Error())
-				}
+				rest, _ := asn1.Unmarshal(ext.Value, &seq)
 				if len(rest) > 0 {
-					fmt.Printf("[DEBUG] rest: %s\n", string(rest))
+					continue
 				}
-
 				rest = seq.Bytes
 				found := false
 				for len(rest) > 0 {
 					var v asn1.RawValue
-					rest, err = asn1.Unmarshal(rest, &v)
-					if err != nil {
-						fmt.Printf("[DEBUG] err2: %s\n", err.Error())
-					}
-
+					rest, _ = asn1.Unmarshal(rest, &v)
 					if len(rest) == 0 {
 						signerName = string(v.Bytes)
 						found = true
@@ -290,7 +282,6 @@ func GetNameInfoFromX509Cert(cert *x509.Certificate) string {
 			}
 		}
 	}
-	fmt.Printf("[DEBUG] signerName 3: %s\n", signerName)
 	return signerName
 }
 

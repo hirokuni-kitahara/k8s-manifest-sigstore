@@ -52,7 +52,7 @@ jobs:
         run: |
           make build
           ./kubectl-sigstore version
-      - name: Do keyless signing for a sample yaml with github action OIDC
+      - name: keyless-sign & keyless-verify with github action OIDC
         run: |
           set -e
           make github-oidc-test
