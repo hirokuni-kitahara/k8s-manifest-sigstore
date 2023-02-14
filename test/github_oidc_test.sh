@@ -26,8 +26,6 @@ set -o pipefail
 export COSIGN_EXPERIMENTAL=1
 K8S_SIGSTORE_CLI=./kubectl-sigstore
 
-echo "Signing a sample yaml using Keyless..."
-
 timestamp=$(date +%s)
 
 cat << EOS > sample-configmap.yaml
@@ -40,7 +38,7 @@ data:
   timestamp: $timestamp
 EOS
 
-
+echo "Signing a sample yaml using Keyless..."
 $K8S_SIGSTORE_CLI sign --tarball=no -f sample-configmap.yaml
 
 
