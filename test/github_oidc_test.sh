@@ -37,4 +37,14 @@ data:
   key: val
 EOS
 
+echo "pwd"
+pwd
+
+echo "ls -l"
+ls -l
+
+echo "ls -l test"
+ls -l test
+
+
 $K8S_SIGSTORE_CLI sign -a sha="$GIT_HASH" -a run_id="$GITHUB_RUN_ID" -a run_attempt="$GITHUB_RUN_ATTEMPT" --image $TEST_IMAGE test/sample-configmap.yaml

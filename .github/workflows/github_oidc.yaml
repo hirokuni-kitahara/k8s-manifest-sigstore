@@ -27,7 +27,7 @@ on:
   pull_request:
 
 jobs:
-  build:
+  github-oidc:
     permissions:
       id-token: write
       packages: write
