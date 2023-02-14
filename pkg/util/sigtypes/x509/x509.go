@@ -23,6 +23,7 @@ import (
 	"crypto/x509"
 	"encoding/asn1"
 	"encoding/base64"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"os"
@@ -242,7 +243,7 @@ func GetNameInfoFromX509Cert(cert *x509.Certificate) string {
 	if len(cert.EmailAddresses) > 0 {
 		signerName = cert.EmailAddresses[0]
 	}
-	fmt.Printf("[DEBUG] signerName 0: %s", signerName)
+	fmt.Printf("[DEBUG] signerName 0: %s\n", signerName)
 	if signerName == "" && len(cert.Subject.Names) > 0 {
 		for _, pkixName := range cert.Subject.Names {
 			if pkixName.Type.Equal(asn1EmailAddressObjectIdentifier) {
@@ -251,20 +252,31 @@ func GetNameInfoFromX509Cert(cert *x509.Certificate) string {
 			}
 		}
 	}
-	fmt.Printf("[DEBUG] signerName 1: %s", signerName)
+	fmt.Printf("[DEBUG] signerName 1: %s\n", signerName)
 	if signerName == "" && cert.Subject.CommonName != "" {
 		signerName = cert.Subject.CommonName
 	}
-	fmt.Printf("[DEBUG] signerName 2: %s", signerName)
+	fmt.Printf("[DEBUG] signerName 2: %s\n", signerName)
 	if signerName == "" && len(cert.Extensions) > 0 {
 		for _, ext := range cert.Extensions {
 			if ext.Id.Equal(asn1SubjectAlternativeNameObjectIdentifier) {
 				signerName = string(ext.Value)
+				var seq asn1.RawValue
+				rest, err := asn1.Unmarshal(ext.Value, &seq)
+				if err != nil {
+					fmt.Printf("[DEBUG] err: %s\n", err.Error())
+				}
+				if len(rest) > 0 {
+					fmt.Printf("[DEBUG] rest: %s\n", string(rest))
+				}
+				seqBytes, _ := json.Marshal(seq)
+				fmt.Printf("[DEBUG] seq: %s\n", string(seqBytes))
+
 				break
 			}
 		}
 	}
-	fmt.Printf("[DEBUG] signerName 3: %s", signerName)
+	fmt.Printf("[DEBUG] signerName 3: %s\n", signerName)
 	return signerName
 }
 
