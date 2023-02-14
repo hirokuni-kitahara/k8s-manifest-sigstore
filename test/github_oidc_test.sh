@@ -28,6 +28,8 @@ K8S_SIGSTORE_CLI=./kubectl-sigstore
 
 echo "Signing a sample yaml using Keyless..."
 
+timestamp=$(date +%s)
+
 cat << EOS > sample-configmap.yaml
 kind: ConfigMap 
 apiVersion: v1 
@@ -35,6 +37,7 @@ metadata:
   name: example-configmap 
 data:
   key: val
+  timestamp: $timestamp
 EOS
 
 
