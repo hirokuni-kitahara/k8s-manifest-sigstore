@@ -23,7 +23,6 @@ import (
 	"crypto/x509"
 	"encoding/asn1"
 	"encoding/base64"
-	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"os"
@@ -260,7 +259,7 @@ func GetNameInfoFromX509Cert(cert *x509.Certificate) string {
 	if signerName == "" && len(cert.Extensions) > 0 {
 		for _, ext := range cert.Extensions {
 			if ext.Id.Equal(asn1SubjectAlternativeNameObjectIdentifier) {
-				signerName = string(ext.Value)
+
 				var seq asn1.RawValue
 				rest, err := asn1.Unmarshal(ext.Value, &seq)
 				if err != nil {
@@ -269,9 +268,8 @@ func GetNameInfoFromX509Cert(cert *x509.Certificate) string {
 				if len(rest) > 0 {
 					fmt.Printf("[DEBUG] rest: %s\n", string(rest))
 				}
-				seqBytes, _ := json.Marshal(seq)
-				fmt.Printf("[DEBUG] seq: %s\n", string(seqBytes))
 
+				signerName = string(seq.Bytes)
 				break
 			}
 		}
