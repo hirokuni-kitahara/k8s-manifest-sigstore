@@ -37,4 +37,4 @@ data:
   key: val
 EOS
 
-$K8S_SIGSTORE_CLI sign -a sha="$GIT_HASH" -a run_id="$GITHUB_RUN_ID" -a run_attempt="$GITHUB_RUN_ATTEMPT" --image $TEST_IMAGE sample-configmap.yaml
+$K8S_SIGSTORE_CLI sign -a sha="$GIT_HASH" -a run_id="$GITHUB_RUN_ID" -a run_attempt="$GITHUB_RUN_ATTEMPT" --image $TEST_IMAGE test/sample-configmap.yaml
