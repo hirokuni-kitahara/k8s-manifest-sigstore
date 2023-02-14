@@ -33,7 +33,6 @@ import (
 
 	k8smnfutil "github.com/sigstore/k8s-manifest-sigstore/pkg/util"
 	"github.com/sigstore/k8s-manifest-sigstore/pkg/util/kubeutil"
-	"github.com/sigstore/sigstore/pkg/cryptoutils"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -44,6 +43,7 @@ const (
 )
 
 var asn1EmailAddressObjectIdentifier = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 1}
+var asn1SubjectAlternativeNameObjectIdentifier = asn1.ObjectIdentifier{2, 5, 29, 17}
 
 // Verify certificate with CA cert, then verify signature
 func VerifyBlob(msgBytes, sigBytes, certBytes []byte, caCertPathString *string) (bool, string, *int64, error) {
@@ -257,11 +257,12 @@ func GetNameInfoFromX509Cert(cert *x509.Certificate) string {
 	}
 	fmt.Printf("[DEBUG] signerName 2: %s", signerName)
 	if signerName == "" && len(cert.Extensions) > 0 {
-		subjectAltName, err := cryptoutils.UnmarshalOtherNameSAN(cert.Extensions)
-		if err != nil {
-			fmt.Printf("[DEBUG] err: %s", err.Error())
+		for _, ext := range cert.Extensions {
+			if ext.Id.Equal(asn1SubjectAlternativeNameObjectIdentifier) {
+				signerName = string(ext.Value)
+				break
+			}
 		}
-		signerName = subjectAltName
 	}
 	fmt.Printf("[DEBUG] signerName 3: %s", signerName)
 	return signerName
