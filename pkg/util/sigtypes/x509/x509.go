@@ -269,8 +269,24 @@ func GetNameInfoFromX509Cert(cert *x509.Certificate) string {
 					fmt.Printf("[DEBUG] rest: %s\n", string(rest))
 				}
 
-				signerName = string(seq.Bytes)
-				break
+				rest = seq.Bytes
+				found := false
+				for len(rest) > 0 {
+					var v asn1.RawValue
+					rest, err = asn1.Unmarshal(rest, &v)
+					if err != nil {
+						fmt.Printf("[DEBUG] err2: %s\n", err.Error())
+					}
+
+					if len(rest) == 0 {
+						signerName = string(v.Bytes)
+						found = true
+						break
+					}
+				}
+				if found {
+					break
+				}
 			}
 		}
 	}
